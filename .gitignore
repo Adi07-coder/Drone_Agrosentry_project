@@ -38,3 +38,9 @@ venv/
 .env.local
 
 __pycache__/
+
+# Unused training models
+models/final_augmented_full_model.pth
+models/final_specialist_model.pth
+yolo26n.pt
+yolov8s.pt
