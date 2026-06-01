@@ -25,9 +25,7 @@ build/
 # Logs
 *.log
 
-# AI Models (optional)
-*.pt
-*.pth
+
 
 node_modules/
 backend/node_modules/
