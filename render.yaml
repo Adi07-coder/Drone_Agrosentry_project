@@ -1,0 +1,18 @@
+services:
+  - type: web
+    name: agrosentry-backend
+    env: docker
+    plan: standard # The standard plan provides 2GB RAM (Required for PyTorch/YOLO)
+    dockerContext: .
+    dockerfilePath: ./Dockerfile
+    envVars:
+      - key: MONGO_URI
+        sync: false
+      - key: JWT_SECRET
+        generateValue: true
+      - key: NODE_ENV
+        value: production
+      - key: CORS_ORIGIN
+        sync: false
+      - key: PYTHON_PATH
+        value: python3

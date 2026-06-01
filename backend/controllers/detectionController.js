@@ -33,10 +33,10 @@ exports.detectDisease = async (req, res, next) => {
 
     try {
       const pythonScriptPath = path.join(__dirname, "../../scripts/predict.py");
-      const pythonExecutable = path.join(__dirname, "../../.venv/Scripts/python.exe");
+      const pythonExecutable = process.env.PYTHON_PATH || "python3";
 
-      if (!fs.existsSync(pythonExecutable) || !fs.existsSync(pythonScriptPath)) {
-        console.error("Missing AI Environment: Script or Virtual Environment not found at", pythonExecutable);
+      if (!fs.existsSync(pythonScriptPath)) {
+        console.error("Missing AI Environment: Script not found at", pythonScriptPath);
         return res.status(500).json({
           success: false,
           message: "Internal Server Error: AI Engine is misconfigured or missing."
