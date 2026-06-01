@@ -1,0 +1,42 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+
+# Node
+node_modules/
+
+# Environment Variables
+.env
+.env.local
+
+# Uploads and generated files
+backend/uploads/
+local_storage/
+realtime_detections/
+
+# IDE
+.vscode/
+
+# Build outputs
+dist/
+build/
+
+# Logs
+*.log
+
+# AI Models (optional)
+*.pt
+*.pth
+
+node_modules/
+backend/node_modules/
+frontend/node_modules/
+
+.venv/
+venv/
+
+.env
+.env.local
+
+__pycache__/

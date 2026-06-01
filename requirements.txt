@@ -1,0 +1,16 @@
+tensorflow
+numpy<2
+matplotlib
+opencv-python
+scikit-learn
+pillow
+torch
+torchvision
+ultralytics
+streamlit
+pymongo
+pandas
+plotly
+requests
+flask
+flask-cors
