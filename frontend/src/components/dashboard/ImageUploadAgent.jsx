@@ -104,7 +104,6 @@ const ImageUploadAgent = ({ onScanComplete }) => {
         })(),
         {
           headers: {
-            'Content-Type': 'multipart/form-data',
             ...getAuthHeaders()
           }
         }

@@ -1,8 +1,9 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
+import basicSsl from '@vitejs/plugin-basic-ssl'
 
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), basicSsl()],
   envPrefix: ['VITE_', 'NEXT_PUBLIC_', 'CLERK_'],
   server: {
     port: 5173,
@@ -22,6 +23,6 @@ export default defineConfig({
   },
   define: {
     // Fallback so VITE_API_URL always resolves
-    'import.meta.env.VITE_API_URL': JSON.stringify(process.env.VITE_API_URL || 'http://localhost:5000/api'),
+    'import.meta.env.VITE_API_URL': JSON.stringify(process.env.VITE_API_URL || '/api'),
   },
 })

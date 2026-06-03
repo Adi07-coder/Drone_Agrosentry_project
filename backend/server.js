@@ -10,15 +10,28 @@ const app = express();
 // Middleware
 app.use(cors({
   origin: (origin, callback) => {
-    // Allow requests from any localhost port, or no origin (server-to-server)
-    if (!origin || /^http:\/\/localhost:\d+$/.test(origin)) {
-      return callback(null, true);
-    }
+    // 1. Allow server-to-server requests (no origin)
+    if (!origin) return callback(null, true);
+    
+    // 2. Allow if explicitly listed in CORS_ORIGIN or if wildcard '*' is used
     const allowed = (process.env.CORS_ORIGIN || 'http://localhost:5175').split(',').map(o => o.trim());
-    if (allowed.includes(origin)) {
+    if (allowed.includes('*') || allowed.includes(origin)) {
       return callback(null, true);
     }
-    callback(new Error('Not allowed by CORS'));
+    
+    // 3. Allow all localhost and standard LAN IPs (10.x, 192.168.x, 172.x) with or without ports
+    if (/^https?:\/\/(localhost|127\.0\.0\.1|10\.\d+\.\d+\.\d+|192\.168\.\d+\.\d+|172\.(1[6-9]|2[0-9]|3[0-1])\.\d+\.\d+)(:\d+)?$/.test(origin)) {
+      return callback(null, true);
+    }
+    
+    // 4. Allow any local hostname without dots (e.g., http://my-pc:5173)
+    try {
+      const hostname = new URL(origin).hostname;
+      if (!hostname.includes('.')) return callback(null, true);
+    } catch(e) {}
+
+    console.warn(`CORS block triggered for origin: ${origin}`);
+    callback(new Error(`Not allowed by CORS: ${origin}`));
   },
   credentials: true
 }));
@@ -122,8 +135,8 @@ storageDirs.forEach(dir => {
 
 const PORT = process.env.PORT || 5000;
 
-app.listen(PORT, () => {
-  console.log(`✓ Server Running on Port ${PORT}`);
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`✓ Server Running on Port ${PORT} (0.0.0.0)`);
   console.log(`✓ Environment: ${process.env.NODE_ENV || 'development'}`);
 });
 

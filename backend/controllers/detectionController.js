@@ -33,7 +33,21 @@ exports.detectDisease = async (req, res, next) => {
 
     try {
       const pythonScriptPath = path.join(__dirname, "../../scripts/predict.py");
-      const pythonExecutable = process.env.PYTHON_PATH || "python3";
+      
+      // Smart cross-platform python resolution
+      let pythonExecutable = process.env.PYTHON_PATH;
+      if (!pythonExecutable) {
+        const winVenv = path.join(__dirname, "../../.venv/Scripts/python.exe");
+        const linVenv = path.join(__dirname, "../../.venv/bin/python");
+        
+        if (fs.existsSync(winVenv)) {
+          pythonExecutable = winVenv;
+        } else if (fs.existsSync(linVenv)) {
+          pythonExecutable = linVenv;
+        } else {
+          pythonExecutable = process.platform === "win32" ? "python" : "python3";
+        }
+      }
 
       if (!fs.existsSync(pythonScriptPath)) {
         console.error("Missing AI Environment: Script not found at", pythonScriptPath);

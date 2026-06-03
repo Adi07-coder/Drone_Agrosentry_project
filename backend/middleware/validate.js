@@ -43,7 +43,12 @@ const validateLogin = [
 
 const validateImageUpload = [
   (req, res, next) => {
+    console.log("==> Upload Request Received");
+    console.log("Body:", req.body);
+    console.log("File:", req.file);
+
     if (!req.file) {
+      console.log("Validation Failed: No image provided");
       return res.status(400).json({
         success: false,
         message: "No image provided",
@@ -52,6 +57,7 @@ const validateImageUpload = [
 
     const allowedMimes = ["image/jpeg", "image/png", "image/jpg"];
     if (!allowedMimes.includes(req.file.mimetype)) {
+      console.log("Validation Failed: Invalid mimetype", req.file.mimetype);
       return res.status(400).json({
         success: false,
         message: "Only JPG and PNG images are allowed",
@@ -59,6 +65,7 @@ const validateImageUpload = [
     }
 
     if (req.file.size === 0) {
+      console.log("Validation Failed: File is empty");
       return res.status(400).json({
         success: false,
         message: "Image file is empty",
@@ -67,12 +74,14 @@ const validateImageUpload = [
 
     const maxSize = 5 * 1024 * 1024; // 5MB
     if (req.file.size > maxSize) {
+      console.log("Validation Failed: File too large", req.file.size);
       return res.status(400).json({
         success: false,
         message: "Image size must be less than 5MB",
       });
     }
 
+    console.log("Validation Passed! Proceeding to controller.");
     next();
   },
 ];

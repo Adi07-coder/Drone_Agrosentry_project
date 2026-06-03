@@ -52,6 +52,10 @@ const LiveCameraAgent = ({ onScanComplete }) => {
 
   const handleStartCamera = async () => {
     try {
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        toast.error('Camera access requires HTTPS or localhost connection.');
+        return;
+      }
       const stream = await navigator.mediaDevices.getUserMedia({ 
         video: { 
           facingMode: "user"
@@ -172,7 +176,7 @@ const LiveCameraAgent = ({ onScanComplete }) => {
       fd.append('image', blob, `capture_${Date.now()}.jpg`);
       
       const response = await axios.post('/api/detect/realtime', fd, {
-        headers: { 'Content-Type': 'multipart/form-data', ...getAuthHeaders() }
+        headers: { ...getAuthHeaders() }
       });
       toast.success('Live frame captured & saved to local_storage!');
       fetchHistory();
@@ -190,7 +194,7 @@ const LiveCameraAgent = ({ onScanComplete }) => {
       fd.append('image', blob, `detect_${Date.now()}.jpg`);
       
       const response = await axios.post('/api/detect/realtime', fd, {
-        headers: { 'Content-Type': 'multipart/form-data', ...getAuthHeaders() }
+        headers: { ...getAuthHeaders() }
       });
       
       if (response.data.success && response.data.subPrediction) {
@@ -242,7 +246,7 @@ const LiveCameraAgent = ({ onScanComplete }) => {
         fd.append('video', blob, `video_${Date.now()}.webm`);
         try {
           await axios.post('/api/detect/realtime/video', fd, {
-            headers: { 'Content-Type': 'multipart/form-data', ...getAuthHeaders() }
+            headers: { ...getAuthHeaders() }
           });
           toast.success('Video recorded and saved to local_storage!');
         } catch (err) {

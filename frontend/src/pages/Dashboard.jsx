@@ -49,7 +49,7 @@ const Dashboard = () => {
                 <p className="text-slate-400">Here's what's happening with your plants today</p>
               </div>
               <a
-                href="http://localhost:8501"
+                href={`http://${window.location.hostname}:8501`}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-gradient-to-r from-emerald-500/20 to-lime-500/10 border border-emerald-500/30 text-emerald-300 hover:text-emerald-100 hover:border-emerald-400/50 transition text-sm font-semibold whitespace-nowrap"

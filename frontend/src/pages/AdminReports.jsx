@@ -141,7 +141,7 @@ const AdminReports = () => {
                 Access the full Streamlit Advanced AI Analytics Dashboard for in-depth pathology curves, disease distribution charts, and prediction confidence histograms.
               </p>
               <a
-                href="http://localhost:8501"
+                href={`http://${window.location.hostname}:8501`}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="flex items-center gap-2 px-4 py-3 rounded-lg bg-gradient-to-r from-emerald-500 to-lime-500 text-white font-bold text-sm hover:opacity-90 transition w-full justify-center"
