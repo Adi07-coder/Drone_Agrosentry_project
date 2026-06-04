@@ -174,6 +174,9 @@ const DroneControlAgent = () => {
   const altRef = useRef(0);
   const coverageRef = useRef(0);
   const progressRef = useRef(0);
+  const videoRef = useRef(null);      // <video> element for camera feed
+  const streamRef = useRef(null);     // MediaStream from getUserMedia
+  const [cameraError, setCameraError] = useState(null);
 
   // ── Live telemetry simulation ──────────────────────────
   useEffect(() => {
@@ -211,6 +214,15 @@ const DroneControlAgent = () => {
     }, 2000);
 
     return () => clearInterval(telemetryIntervalRef.current);
+  }, []);
+
+  // ── Camera stream cleanup on unmount ──────────────────
+  useEffect(() => {
+    return () => {
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach((t) => t.stop());
+      }
+    };
   }, []);
 
   // ── Generic command executor ───────────────────────────
@@ -325,11 +337,47 @@ const DroneControlAgent = () => {
     setTelemetry((t) => ({ ...t, gpsLock: true, satellites: r.satellites }));
   });
 
-  const handleCameraToggle = () => {
+  const handleCameraToggle = async () => {
     const next = !droneState.cameraEnabled;
-    executeCommand('camera', () => droneService.toggleCamera(next), () =>
-      setDroneState((s) => ({ ...s, cameraEnabled: next }))
-    );
+    if (next) {
+      // Turn camera ON — request device camera access
+      setLoading((l) => ({ ...l, camera: true }));
+      setCameraError(null);
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } },
+          audio: false,
+        });
+        streamRef.current = stream;
+        // Assign stream to <video> element
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream;
+          await videoRef.current.play();
+        }
+        setDroneState((s) => ({ ...s, cameraEnabled: true }));
+        toast.success('Camera feed active — showing live input');
+      } catch (err) {
+        const msg = err.name === 'NotAllowedError'
+          ? 'Camera permission denied — allow camera access in browser'
+          : err.name === 'NotFoundError'
+          ? 'No camera device found'
+          : `Camera error: ${err.message}`;
+        setCameraError(msg);
+        toast.error(msg);
+      } finally {
+        setLoading((l) => ({ ...l, camera: false }));
+      }
+    } else {
+      // Turn camera OFF — stop all tracks
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach((t) => t.stop());
+        streamRef.current = null;
+      }
+      if (videoRef.current) videoRef.current.srcObject = null;
+      setDroneState((s) => ({ ...s, cameraEnabled: false }));
+      setCameraError(null);
+      toast.success('Camera feed stopped');
+    }
   };
 
   const handleLiveFeedToggle = () => {
@@ -598,8 +646,165 @@ const DroneControlAgent = () => {
           </motion.div>
         </div>
 
-        {/* RIGHT — STATUS & SAFETY */}
+        {/* RIGHT — STATUS, SAFETY & CAMERA FEED */}
         <div className="lg:col-span-2 space-y-5">
+
+          {/* ── CAMERA FEED PANEL ─────────────────────── */}
+          <AnimatePresence>
+            {(droneState.cameraEnabled || cameraError) && (
+              <motion.div
+                key="camera-panel"
+                initial={{ opacity: 0, y: -16, scale: 0.97 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={{ opacity: 0, y: -16, scale: 0.97 }}
+                transition={{ duration: 0.35, ease: 'easeOut' }}
+              >
+                <Card className="overflow-hidden p-0" hover={false}>
+                  {/* Panel header */}
+                  <div className="flex items-center justify-between px-4 py-2.5 border-b border-slate-800 bg-slate-950/70">
+                    <div className="flex items-center gap-2">
+                      <Camera size={14} className="text-emerald-400" />
+                      <span className="text-sm font-bold text-white">Drone FPV Camera</span>
+                      {droneState.cameraEnabled && !cameraError && (
+                        <span className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-red-500/20 border border-red-500/40 text-red-300 text-xs font-bold">
+                          <span className="w-1.5 h-1.5 rounded-full bg-red-400 animate-pulse" />
+                          LIVE
+                        </span>
+                      )}
+                    </div>
+                    <button
+                      onClick={handleCameraToggle}
+                      className="flex items-center gap-1.5 px-3 py-1 rounded-lg bg-red-500/15 border border-red-500/30 text-red-300 hover:bg-red-500/25 text-xs font-semibold transition"
+                    >
+                      <EyeOff size={12} /> Close Feed
+                    </button>
+                  </div>
+
+                  {/* Video viewport */}
+                  <div className="relative bg-black" style={{ height: '340px' }}>
+
+                    {/* Real camera video element */}
+                    <video
+                      ref={videoRef}
+                      autoPlay
+                      playsInline
+                      muted
+                      className={`w-full h-full object-cover transition-opacity duration-500 ${
+                        droneState.cameraEnabled && !cameraError ? 'opacity-100' : 'opacity-0'
+                      }`}
+                    />
+
+                    {/* Error state */}
+                    {cameraError && (
+                      <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-slate-950">
+                        <Camera size={40} className="text-slate-600" />
+                        <p className="text-red-400 text-sm font-semibold text-center px-6">{cameraError}</p>
+                        <button
+                          onClick={handleCameraToggle}
+                          className="px-4 py-2 rounded-lg bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 text-xs font-semibold hover:bg-emerald-500/30 transition"
+                        >
+                          Retry Camera
+                        </button>
+                      </div>
+                    )}
+
+                    {/* FPV HUD overlay — only shown when live */}
+                    {droneState.cameraEnabled && !cameraError && (
+                      <>
+                        {/* Scanline effect */}
+                        <div
+                          className="absolute inset-0 pointer-events-none"
+                          style={{
+                            background: 'repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,0,0,0.04) 2px, rgba(0,0,0,0.04) 4px)',
+                          }}
+                        />
+
+                        {/* Corner brackets */}
+                        {[['top-3 left-3','border-t-2 border-l-2'],['top-3 right-3','border-t-2 border-r-2'],['bottom-3 left-3','border-b-2 border-l-2'],['bottom-3 right-3','border-b-2 border-r-2']].map(([pos, border], i) => (
+                          <div key={i} className={`absolute ${pos} w-6 h-6 ${border} border-emerald-400/70 pointer-events-none`} />
+                        ))}
+
+                        {/* Centre crosshair */}
+                        <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                          <div className="relative w-16 h-16">
+                            <div className="absolute top-1/2 left-0 right-0 h-px bg-emerald-400/50" />
+                            <div className="absolute left-1/2 top-0 bottom-0 w-px bg-emerald-400/50" />
+                            <div className="absolute top-1/2 left-1/2 w-4 h-4 -translate-x-1/2 -translate-y-1/2 rounded-full border border-emerald-400/60" />
+                          </div>
+                        </div>
+
+                        {/* TOP-LEFT — REC + timestamp */}
+                        <div className="absolute top-3 left-10 flex items-center gap-2 pointer-events-none">
+                          <span className="flex items-center gap-1.5 text-red-400 text-xs font-bold font-mono">
+                            <span className="w-2 h-2 rounded-full bg-red-400 animate-pulse" />
+                            REC
+                          </span>
+                          <span className="text-white/60 text-xs font-mono">
+                            {new Date().toLocaleTimeString()}
+                          </span>
+                        </div>
+
+                        {/* TOP-RIGHT — mode + battery */}
+                        <div className="absolute top-3 right-10 flex items-center gap-3 pointer-events-none">
+                          <span className="text-emerald-400 text-xs font-bold font-mono uppercase">{droneState.flightMode}</span>
+                          <span className={`text-xs font-bold font-mono ${
+                            telemetry.battery > 40 ? 'text-emerald-400' : 'text-red-400'
+                          }`}>
+                            BAT {telemetry.battery.toFixed(0)}%
+                          </span>
+                        </div>
+
+                        {/* BOTTOM-LEFT — altitude + speed */}
+                        <div className="absolute bottom-3 left-10 space-y-0.5 pointer-events-none">
+                          <div className="text-xs font-mono text-emerald-300">
+                            ALT&nbsp;&nbsp;<span className="text-white font-bold">{telemetry.altitude.toFixed(1)} m</span>
+                          </div>
+                          <div className="text-xs font-mono text-emerald-300">
+                            SPD&nbsp;&nbsp;<span className="text-white font-bold">{telemetry.speed.toFixed(1)} m/s</span>
+                          </div>
+                        </div>
+
+                        {/* BOTTOM-RIGHT — heading + GPS */}
+                        <div className="absolute bottom-3 right-10 text-right space-y-0.5 pointer-events-none">
+                          <div className="text-xs font-mono text-emerald-300">
+                            HDG&nbsp;<span className="text-white font-bold">{Math.floor(telemetry.heading)}°</span>
+                          </div>
+                          <div className="text-xs font-mono text-emerald-300">
+                            GPS&nbsp;<span className={telemetry.gpsLock ? 'text-emerald-400 font-bold' : 'text-amber-400 font-bold'}>
+                              {telemetry.gpsLock ? `LOCK (${telemetry.satellites})` : 'SEARCHING'}
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* CENTRE-TOP — drone ID */}
+                        <div className="absolute top-3 left-1/2 -translate-x-1/2 pointer-events-none">
+                          <span className="text-white/50 text-xs font-mono tracking-widest">AGROSENTRY-01</span>
+                        </div>
+
+                        {/* Signal strength bar — bottom centre */}
+                        <div className="absolute bottom-3 left-1/2 -translate-x-1/2 flex flex-col items-center gap-1 pointer-events-none">
+                          <div className="flex items-end gap-0.5">
+                            {[3,5,7,9,11].map((h, i) => (
+                              <div
+                                key={i}
+                                style={{ height: `${h}px`, width: '3px' }}
+                                className={`rounded-sm ${
+                                  i < Math.ceil((telemetry.signalStrength / 100) * 5)
+                                    ? 'bg-emerald-400'
+                                    : 'bg-slate-600'
+                                }`}
+                              />
+                            ))}
+                          </div>
+                          <span className="text-emerald-400 text-xs font-mono">{telemetry.signalStrength}%</span>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                </Card>
+              </motion.div>
+            )}
+          </AnimatePresence>
 
           {/* Drone Status */}
           <motion.div variants={itemVariants}>
