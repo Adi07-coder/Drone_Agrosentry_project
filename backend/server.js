@@ -49,19 +49,21 @@ app.use("/uploads", express.static("uploads"));
 // ROUTES
 // =========================
 
-const authRoutes = require("./routes/authRoutes");
+const authRoutes    = require("./routes/authRoutes");
 const detectionRoutes = require("./routes/detectionRoutes");
-const adminRoutes = require("./routes/adminRoutes");
+const adminRoutes   = require("./routes/adminRoutes");
 const symptomRoutes = require("./routes/symptomRoutes");
-const logRoutes = require("./routes/logRoutes");
+const logRoutes     = require("./routes/logRoutes");
+const droneRoutes   = require("./routes/droneRoutes");
 
-app.use("/api/auth", authRoutes);
+app.use("/api/auth",      authRoutes);
 app.use("/api/detection", detectionRoutes);
-app.use("/api/detect", detectionRoutes); // Alias to support both route formats
-app.use("/api/admin", adminRoutes);
-app.use("/api/detect/symptom", symptomRoutes);
+app.use("/api/detect",    detectionRoutes);  // Alias
+app.use("/api/admin",     adminRoutes);
+app.use("/api/detect/symptom",    symptomRoutes);
 app.use("/api/detection/symptom", symptomRoutes);
-app.use("/api/logs", logRoutes);
+app.use("/api/logs",  logRoutes);
+app.use("/api/drone", droneRoutes); // Drone control + mission plans
 
 // Analytics API Endpoint
 const { getSystemStats } = require("./controllers/detectionController");

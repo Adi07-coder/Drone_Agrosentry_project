@@ -15,6 +15,7 @@ import {
 import { containerVariants, itemVariants } from '../../animations/variants';
 import toast from 'react-hot-toast';
 import * as droneService from '../../services/droneService';
+import * as droneApi from '../../services/droneApiService';
 
 // ─────────────────────────────────────────────────────────
 // INITIAL STATE
@@ -170,13 +171,19 @@ const DroneControlAgent = () => {
   const [telemetry, setTelemetry] = useState(INITIAL_TELEMETRY);
   const [loading, setLoading] = useState({});
   const telemetryIntervalRef = useRef(null);
-  const batteryRef = useRef(87);
-  const altRef = useRef(0);
-  const coverageRef = useRef(0);
-  const progressRef = useRef(0);
-  const videoRef = useRef(null);      // <video> element for camera feed
-  const streamRef = useRef(null);     // MediaStream from getUserMedia
-  const [cameraError, setCameraError] = useState(null);
+  const batteryRef    = useRef(87);
+  const altRef        = useRef(0);
+  const coverageRef   = useRef(0);
+  const progressRef   = useRef(0);
+  const videoRef      = useRef(null);
+  const streamRef     = useRef(null);
+  const sessionIdRef  = useRef(null);   // active backend session _id
+  const flushRef      = useRef(null);   // telemetry flush interval
+  const flightStartTs = useRef(null);   // takeoff timestamp
+  const [cameraError,   setCameraError]   = useState(null);
+  const [backendStats,  setBackendStats]  = useState(null);  // aggregated stats from backend
+  const [sessionActive, setSessionActive] = useState(false);
+  const [savingSession, setSavingSession] = useState(false);
 
   // ── Live telemetry simulation ──────────────────────────
   useEffect(() => {
@@ -216,7 +223,69 @@ const DroneControlAgent = () => {
     return () => clearInterval(telemetryIntervalRef.current);
   }, []);
 
-  // ── Camera stream cleanup on unmount ──────────────────
+  // ── Backend session lifecycle ─────────────────────────
+  useEffect(() => {
+    let mounted = true;
+
+    // Load dashboard stats
+    droneApi.getDroneStats()
+      .then(res => { if (mounted && res.success) setBackendStats(res.stats); })
+      .catch(() => {}); // silently ignore if backend unreachable
+
+    // Start a new backend session
+    droneApi.startSession({
+      sessionName: `Flight ${new Date().toLocaleString()}`,
+      batteryStart: batteryRef.current,
+    })
+      .then(res => {
+        if (mounted && res.success) {
+          sessionIdRef.current = res.session._id;
+          setSessionActive(true);
+        }
+      })
+      .catch(() => {}); // gracefully degrade if offline
+
+    // Flush telemetry to backend every 10 seconds
+    flushRef.current = setInterval(() => {
+      if (!sessionIdRef.current) return;
+      setTelemetry(t => {
+        droneApi.flushTelemetry(sessionIdRef.current, {
+          battery:        t.battery,
+          altitude:       t.altitude,
+          speed:          t.speed,
+          heading:        t.heading,
+          gpsLock:        t.gpsLock,
+          satellites:     t.satellites,
+          signalStrength:  t.signalStrength,
+          flowRate:        t.flowRate,
+          tankLevel:       t.tankLevel,
+          coverageArea:    t.coverageArea,
+          missionProgress: t.missionProgress,
+        });
+        return t;
+      });
+    }, 10000);
+
+    return () => {
+      mounted = false;
+      clearInterval(flushRef.current);
+      // End backend session on unmount
+      if (sessionIdRef.current) {
+        const flightSecs = flightStartTs.current
+          ? Math.round((Date.now() - flightStartTs.current) / 1000)
+          : 0;
+        droneApi.endSession(sessionIdRef.current, {
+          status:          'completed',
+          batteryEnd:       batteryRef.current,
+          totalFlightTime:  flightSecs,
+          coverageArea:     coverageRef.current,
+          waterUsed:        coverageRef.current * 0.5,
+        }).catch(() => {});
+      }
+    };
+  }, []);
+
+  // ── Camera stream cleanup on unmount ─────────────────
   useEffect(() => {
     return () => {
       if (streamRef.current) {
@@ -225,7 +294,8 @@ const DroneControlAgent = () => {
     };
   }, []);
 
-  // ── Generic command executor ───────────────────────────
+  // ── Generic command executor ─────────────────────────
+  // Runs the mock/hardware command AND logs it to the backend session.
   const executeCommand = useCallback(async (cmdKey, serviceCall, onSuccess) => {
     setLoading((l) => ({ ...l, [cmdKey]: true }));
     try {
@@ -233,6 +303,15 @@ const DroneControlAgent = () => {
       if (result.success) {
         toast.success(result.message);
         onSuccess?.(result);
+        // Log to backend (fire-and-forget)
+        if (sessionIdRef.current && result.command) {
+          droneApi.logCommand(sessionIdRef.current, {
+            command: result.command,
+            params:  result,
+            success: true,
+            message: result.message,
+          }).catch(() => {});
+        }
       } else {
         toast.error(result.message || 'Command failed');
       }
@@ -255,6 +334,7 @@ const DroneControlAgent = () => {
   const handleTakeoff = () => executeCommand('takeoff', () => droneService.takeoff(30), (r) => {
     setDroneState((s) => ({ ...s, isFlying: true, flightMode: 'TAKEOFF' }));
     altRef.current = 30;
+    flightStartTs.current = Date.now(); // record start time for backend flight duration
   });
 
   const handleLand = () => executeCommand('land', droneService.land, () => {
@@ -457,6 +537,31 @@ const DroneControlAgent = () => {
           </motion.button>
         </div>
       </motion.div>
+
+      {/* ── BACKEND STATS STRIP ────────────────────────── */}
+      {backendStats && (
+        <motion.div variants={itemVariants} className="flex flex-wrap items-center gap-3 mb-5 p-3 rounded-xl bg-slate-900/40 border border-slate-800">
+          <div className="flex items-center gap-1.5 text-xs text-slate-400">
+            <div className={`w-2 h-2 rounded-full ${sessionActive ? 'bg-emerald-400 animate-pulse' : 'bg-slate-600'}`} />
+            <span className={sessionActive ? 'text-emerald-400 font-semibold' : 'text-slate-500'}>
+              {sessionActive ? 'Session Recording' : 'No active session'}
+            </span>
+          </div>
+          <div className="h-4 w-px bg-slate-700" />
+          {[
+            { label: 'Total Flights',   value: backendStats.totalSessions    || 0 },
+            { label: 'Completed',       value: backendStats.completedFlights || 0 },
+            { label: 'Flight Time',     value: `${Math.round((backendStats.totalFlightTime || 0) / 60)} min` },
+            { label: 'Coverage',        value: `${(backendStats.totalCoverage || 0).toFixed(1)} ha` },
+            { label: 'Water Used',      value: `${(backendStats.totalWaterUsed || 0).toFixed(1)} L` },
+          ].map(({ label, value }) => (
+            <div key={label} className="flex items-center gap-1.5">
+              <span className="text-slate-500 text-xs">{label}:</span>
+              <span className="text-emerald-300 text-xs font-bold">{value}</span>
+            </div>
+          ))}
+        </motion.div>
+      )}
 
       {/* ── TOP TELEMETRY ROW ──────────────────────────── */}
       <motion.div variants={itemVariants} className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
