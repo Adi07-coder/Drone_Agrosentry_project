@@ -584,17 +584,6 @@ const MissionPlannerAgent = () => {
     toast.success(`Coverage path generated — ${newWps.length} waypoints`);
   };
 
-  // ── Mission ops ────────────────────────────────────────
-  const handleSave = () => {
-    const result = missionService.saveMission(waypoints, { waypointCount: waypoints.length });
-    toast[result.success ? 'success' : 'error'](result.message);
-  };
-
-  const handleLoad = () => {
-    const result = missionService.loadMission();
-    if (result.success) { setWaypoints(result.mission.waypoints || []); toast.success('Mission loaded'); }
-    else toast.error(result.message);
-  };
 
   const handleExport = () => {
     if (!waypoints.length) { toast.error('No waypoints to export'); return; }

@@ -16,6 +16,16 @@ import { containerVariants, itemVariants } from '../../animations/variants';
 import toast from 'react-hot-toast';
 import * as droneService from '../../services/droneService';
 import * as droneApi from '../../services/droneApiService';
+import useSprinklingTimer from '../../hooks/useSprinklingTimer';
+import { TIMER_STATES, formatCountdown } from '../../services/sprinklingTimerService';
+
+// Display helpers (module-level, no hook dependency)
+const formatDuration = (min, sec) => {
+  const m = Math.max(0, parseInt(min) || 0);
+  const s = Math.max(0, parseInt(sec) || 0);
+  return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+};
+const formatCountdownDisplay = (secs) => formatCountdown(secs);
 
 // ─────────────────────────────────────────────────────────
 // INITIAL STATE
@@ -185,6 +195,36 @@ const DroneControlAgent = () => {
   const [sessionActive, setSessionActive] = useState(false);
   const [savingSession, setSavingSession] = useState(false);
 
+  // ── Timed Sprinkling Timer ────────────────────────────
+  const spTimer = useSprinklingTimer({
+    flowRate:  telemetry.flowRate,
+    tankLevel: telemetry.tankLevel,
+    onAutoStop: () => {
+      // Auto-stop sprinkler when timer hits zero
+      droneService.stopSprinkling();
+      setDroneState((s) => ({ ...s, isSprinklingActive: false }));
+      toast.success('⏱ Timed spray complete — sprinkler stopped automatically', { duration: 4000 });
+      if (sessionIdRef.current) {
+        droneApi.logCommand(sessionIdRef.current, {
+          command: 'SPRINKLE_STOP',
+          params:  { trigger: 'timer_auto_stop' },
+          success: true,
+          message: 'Timer-triggered auto stop',
+        }).catch(() => {});
+      }
+    },
+    onTimerEvent: (event, data) => {
+      if (sessionIdRef.current) {
+        droneApi.logCommand(sessionIdRef.current, {
+          command: `TIMER_${event}`,
+          params:  data,
+          success: true,
+          message: event,
+        }).catch(() => {});
+      }
+    },
+  });
+
   // ── Live telemetry simulation ──────────────────────────
   useEffect(() => {
     telemetryIntervalRef.current = setInterval(() => {
@@ -353,13 +393,15 @@ const DroneControlAgent = () => {
   const handleEmergencyStop = async () => {
     setLoading((l) => ({ ...l, estop: true }));
     try {
-      const result = await droneService.emergencyStop();
+      await droneService.emergencyStop();
       toast.error('⚠ EMERGENCY STOP — All motors killed!', { duration: 5000 });
       setDroneState(INITIAL_DRONE_STATE);
       setTelemetry((t) => ({ ...t, altitude: 0, speed: 0 }));
       altRef.current = 0;
       coverageRef.current = 0;
       progressRef.current = 0;
+      // ⚠ Cancel timed sprinkle immediately
+      spTimer.emergencyCancel();
     } catch {
       toast.error('Emergency stop signal failed!');
     } finally {
@@ -649,7 +691,7 @@ const DroneControlAgent = () => {
             </Card>
           </motion.div>
 
-          {/* Sprinkling Controls */}
+          {/* Sprinkling Controls + Timed Scheduler */}
           <motion.div variants={itemVariants}>
             <Card className="p-5" hover={false}>
               <h3 className="text-base font-bold text-white mb-4 flex items-center gap-2">
@@ -669,6 +711,7 @@ const DroneControlAgent = () => {
                 </AnimatePresence>
               </h3>
 
+              {/* Quick Manual On/Off */}
               <div className="grid grid-cols-2 gap-2 mb-4">
                 <ControlButton
                   label="Start Sprinkle" icon={Droplets}
@@ -684,27 +727,15 @@ const DroneControlAgent = () => {
                 />
               </div>
 
-              {/* Flow Rate Control */}
+              {/* Flow Rate */}
               <div className="bg-slate-900/50 rounded-lg p-3 border border-slate-800 mb-3">
                 <div className="flex items-center justify-between mb-2">
                   <span className="text-slate-400 text-xs font-medium">Flow Rate</span>
                   <span className="text-cyan-300 font-bold">{telemetry.flowRate} L/min</span>
                 </div>
                 <div className="flex gap-2">
-                  <ControlButton
-                    label="Decrease" icon={Minus}
-                    onClick={handleDecreaseFlow} loading={loading.flowDown}
-                    variant="default"
-                    disabled={telemetry.flowRate <= 1}
-                    className="flex-1"
-                  />
-                  <ControlButton
-                    label="Increase" icon={Plus}
-                    onClick={handleIncreaseFlow} loading={loading.flowUp}
-                    variant="primary"
-                    disabled={telemetry.flowRate >= 10}
-                    className="flex-1"
-                  />
+                  <ControlButton label="Decrease" icon={Minus} onClick={handleDecreaseFlow} loading={loading.flowDown} variant="default" disabled={telemetry.flowRate <= 1} className="flex-1" />
+                  <ControlButton label="Increase" icon={Plus}  onClick={handleIncreaseFlow} loading={loading.flowUp}   variant="primary" disabled={telemetry.flowRate >= 10} className="flex-1" />
                 </div>
               </div>
 
@@ -723,6 +754,232 @@ const DroneControlAgent = () => {
                   />
                 </div>
               </div>
+            </Card>
+          </motion.div>
+
+          {/* ⏱ TIMED SPRINKLING SCHEDULER */}
+          <motion.div variants={itemVariants}>
+            <Card className="p-5" hover={false}>
+              {/* Section Header */}
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-base font-bold text-white flex items-center gap-2">
+                  <Clock size={16} className="text-cyan-400" />
+                  Timed Sprinkling Scheduler
+                </h3>
+                <span className={`text-xs font-bold px-2.5 py-1 rounded-full border ${
+                  spTimer.isRunning  ? 'bg-cyan-500/15 border-cyan-500/40 text-cyan-300 animate-pulse' :
+                  spTimer.isPaused   ? 'bg-amber-500/15 border-amber-500/40 text-amber-300' :
+                  spTimer.timerState === TIMER_STATES.COMPLETED ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-300' :
+                  spTimer.timerState === TIMER_STATES.CANCELLED ? 'bg-red-500/15 border-red-500/40 text-red-300' :
+                  'bg-slate-800 border-slate-700 text-slate-400'
+                }`}>
+                  {spTimer.display.statusLabel.text}
+                </span>
+              </div>
+
+              {/* ─ COUNTDOWN DISPLAY ──────────────────── */}
+              <div className="flex items-center justify-center mb-5">
+                <div className="relative w-36 h-36">
+                  {/* SVG progress ring */}
+                  <svg className="absolute inset-0 w-full h-full -rotate-90" viewBox="0 0 120 120">
+                    <circle cx="60" cy="60" r="52" fill="none" stroke="#1e293b" strokeWidth="8" />
+                    <circle
+                      cx="60" cy="60" r="52" fill="none"
+                      stroke={spTimer.display.progressColor}
+                      strokeWidth="8"
+                      strokeLinecap="round"
+                      strokeDasharray={`${2 * Math.PI * 52}`}
+                      strokeDashoffset={`${2 * Math.PI * 52 * (1 - spTimer.display.percentDone / 100)}`}
+                      style={{ transition: 'stroke-dashoffset 0.9s linear, stroke 0.3s' }}
+                    />
+                  </svg>
+                  {/* Countdown text */}
+                  <div className="absolute inset-0 flex flex-col items-center justify-center">
+                    <span
+                      className="text-2xl font-black tracking-tight font-mono"
+                      style={{ color: spTimer.display.progressColor }}
+                    >
+                      {spTimer.isIdle && spTimer.duration === 0
+                        ? formatDuration(spTimer.inputMin, spTimer.inputSec)
+                        : spTimer.timerState === TIMER_STATES.COMPLETED ? '00:00'
+                        : spTimer.timerState === TIMER_STATES.CANCELLED  ? '--:--'
+                        : formatCountdownDisplay(spTimer.remaining)}
+                    </span>
+                    <span className="text-xs text-slate-500 mt-0.5 font-mono">
+                      {spTimer.isActive ? 'remaining' : spTimer.timerState === TIMER_STATES.COMPLETED ? 'done ✓' : 'duration'}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* ─ TELEMETRY STRIP (active only) ────────── */}
+              <AnimatePresence>
+                {(spTimer.isActive || spTimer.timerState === TIMER_STATES.COMPLETED) && (
+                  <motion.div
+                    initial={{ opacity: 0, height: 0 }}
+                    animate={{ opacity: 1, height: 'auto' }}
+                    exit={{ opacity: 0, height: 0 }}
+                    className="mb-4 overflow-hidden"
+                  >
+                    <div className="grid grid-cols-2 gap-2 mb-3">
+                      {[
+                        { label: 'Flow Rate',  value: `${telemetry.flowRate} L/min`, color: 'text-cyan-400' },
+                        { label: 'Tank Level', value: `${telemetry.tankLevel}%`,     color: telemetry.tankLevel > 30 ? 'text-cyan-400' : 'text-red-400' },
+                        { label: 'Water Used', value: `${spTimer.display.waterConsumed} L`, color: 'text-blue-400' },
+                        { label: 'Coverage',   value: `${spTimer.display.coverageM2} m²`,   color: 'text-emerald-400' },
+                      ].map(({ label, value, color }) => (
+                        <div key={label} className="bg-slate-900/60 border border-slate-800 rounded-lg p-2.5">
+                          <p className="text-slate-500 text-xs mb-0.5">{label}</p>
+                          <p className={`font-bold text-sm ${color}`}>{value}</p>
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* Spray progress bar */}
+                    <div className="mb-1 flex justify-between text-xs">
+                      <span className="text-slate-500">Spray Progress</span>
+                      <span className="font-bold" style={{ color: spTimer.display.progressColor }}>
+                        {spTimer.display.percentDone.toFixed(1)}%
+                      </span>
+                    </div>
+                    <div className="h-2 bg-slate-800 rounded-full overflow-hidden">
+                      <motion.div
+                        className="h-full rounded-full"
+                        style={{ width: `${spTimer.display.percentDone}%`, backgroundColor: spTimer.display.progressColor, transition: 'width 0.9s linear' }}
+                      />
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+
+              {/* ─ DURATION INPUT (shown when idle/done) ──── */}
+              <AnimatePresence>
+                {(spTimer.isIdle || spTimer.isDone) && (
+                  <motion.div
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    className="mb-4"
+                  >
+                    {/* Manual min/sec input */}
+                    <div className="flex items-center gap-2 mb-3">
+                      <div className="flex-1">
+                        <label className="text-xs text-slate-500 mb-1 block">Minutes</label>
+                        <div className="flex items-center bg-slate-900 border border-slate-700 rounded-lg overflow-hidden focus-within:border-cyan-500/60 transition">
+                          <button
+                            onClick={() => spTimer.setInputMin(m => Math.max(0, m - 1))}
+                            className="px-2.5 py-2 text-slate-400 hover:text-white hover:bg-slate-800 transition"
+                          ><Minus size={12} /></button>
+                          <input
+                            type="number" min="0" max="60"
+                            value={spTimer.inputMin}
+                            onChange={e => spTimer.setInputMin(Math.max(0, parseInt(e.target.value) || 0))}
+                            className="flex-1 bg-transparent text-center text-white font-bold text-sm py-2 focus:outline-none w-full"
+                          />
+                          <button
+                            onClick={() => spTimer.setInputMin(m => Math.min(60, m + 1))}
+                            className="px-2.5 py-2 text-slate-400 hover:text-white hover:bg-slate-800 transition"
+                          ><Plus size={12} /></button>
+                        </div>
+                      </div>
+                      <span className="text-slate-600 font-bold mt-5">:</span>
+                      <div className="flex-1">
+                        <label className="text-xs text-slate-500 mb-1 block">Seconds</label>
+                        <div className="flex items-center bg-slate-900 border border-slate-700 rounded-lg overflow-hidden focus-within:border-cyan-500/60 transition">
+                          <button
+                            onClick={() => spTimer.setInputSec(s => Math.max(0, s - 5))}
+                            className="px-2.5 py-2 text-slate-400 hover:text-white hover:bg-slate-800 transition"
+                          ><Minus size={12} /></button>
+                          <input
+                            type="number" min="0" max="59"
+                            value={spTimer.inputSec}
+                            onChange={e => spTimer.setInputSec(Math.min(59, Math.max(0, parseInt(e.target.value) || 0)))}
+                            className="flex-1 bg-transparent text-center text-white font-bold text-sm py-2 focus:outline-none w-full"
+                          />
+                          <button
+                            onClick={() => spTimer.setInputSec(s => Math.min(59, s + 5))}
+                            className="px-2.5 py-2 text-slate-400 hover:text-white hover:bg-slate-800 transition"
+                          ><Plus size={12} /></button>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Preset buttons */}
+                    <div className="flex flex-wrap gap-1.5 mb-1">
+                      {spTimer.PRESET_DURATIONS.map((p) => (
+                        <button
+                          key={p.label}
+                          onClick={() => { spTimer.setInputMin(p.displayMin); spTimer.setInputSec(p.displaySec); }}
+                          className="px-2.5 py-1 rounded-lg border border-slate-700 bg-slate-900 text-slate-300 text-xs font-semibold hover:border-cyan-500/60 hover:text-cyan-300 hover:bg-cyan-500/10 transition"
+                        >
+                          {p.label}
+                        </button>
+                      ))}
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+
+              {/* ─ TIMER CONTROL BUTTONS ─────────────── */}
+              {(spTimer.isIdle || spTimer.isDone) && (
+                <motion.button
+                  whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.97 }}
+                  onClick={async () => {
+                    // Start sprinkler hardware first, then start timer
+                    if (!droneState.isSprinklingActive) {
+                      await executeCommand('sprinkleStart', droneService.startSprinkling, () =>
+                        setDroneState((s) => ({ ...s, isSprinklingActive: true }))
+                      );
+                    }
+                    if (spTimer.isDone) spTimer.reset();
+                    spTimer.start();
+                  }}
+                  className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-gradient-to-r from-cyan-500/20 to-blue-500/15 border border-cyan-500/40 text-cyan-200 font-bold text-sm hover:border-cyan-400/70 hover:bg-cyan-500/25 transition mb-2"
+                >
+                  <Play size={15} />
+                  Start Timed Sprinkling
+                </motion.button>
+              )}
+
+              {spTimer.isActive && (
+                <div className="grid grid-cols-3 gap-2 mb-2">
+                  {spTimer.isRunning && (
+                    <motion.button
+                      whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.97 }}
+                      onClick={spTimer.pause}
+                      className="col-span-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl border border-amber-500/40 bg-amber-500/10 text-amber-300 text-sm font-semibold hover:bg-amber-500/20 transition"
+                    >
+                      <Pause size={13} /> Pause
+                    </motion.button>
+                  )}
+                  {spTimer.isPaused && (
+                    <motion.button
+                      whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.97 }}
+                      onClick={spTimer.resume}
+                      className="col-span-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl border border-emerald-500/40 bg-emerald-500/10 text-emerald-300 text-sm font-semibold hover:bg-emerald-500/20 transition"
+                    >
+                      <Play size={13} /> Resume
+                    </motion.button>
+                  )}
+                  <motion.button
+                    whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.97 }}
+                    onClick={() => { spTimer.cancel(); handleStopSprinkling(); }}
+                    className="col-span-2 flex items-center justify-center gap-1.5 py-2.5 rounded-xl border border-red-500/40 bg-red-500/10 text-red-300 text-sm font-semibold hover:bg-red-500/20 transition"
+                  >
+                    <Square size={13} /> Cancel Timer &amp; Stop
+                  </motion.button>
+                </div>
+              )}
+
+              {/* Reset after completion */}
+              {spTimer.isDone && (
+                <button
+                  onClick={spTimer.reset}
+                  className="w-full py-2 rounded-lg border border-slate-700 bg-slate-800/50 text-slate-400 text-xs font-semibold hover:text-slate-300 hover:border-slate-600 transition flex items-center justify-center gap-1.5"
+                >
+                  <RotateCcw size={11} /> Reset Scheduler
+                </button>
+              )}
             </Card>
           </motion.div>
 
