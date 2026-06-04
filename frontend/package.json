@@ -14,14 +14,16 @@
     "clsx": "^2.1.1",
     "file-saver": "^2.0.5",
     "framer-motion": "^12.38.0",
+    "leaflet": "^1.9.4",
     "lucide-react": "^1.14.0",
     "mongodb": "^7.2.0",
     "react-hot-toast": "^2.6.0",
+    "react-leaflet": "^5.0.0",
     "react-router-dom": "^7.15.0",
     "recharts": "^3.8.1",
+    "socket.io-client": "^4.8.3",
     "tailwind-merge": "^3.6.0",
-    "vue": "^3.5.34",
-    "xlsx": "^0.18.5"
+    "vue": "^3.5.34"
   },
   "devDependencies": {
     "@vitejs/plugin-basic-ssl": "^2.3.0",

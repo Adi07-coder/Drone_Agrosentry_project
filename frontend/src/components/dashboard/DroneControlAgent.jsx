@@ -9,14 +9,16 @@ import {
   Droplets, Plus, Minus, Activity, Battery, Gauge,
   Signal, Camera, RefreshCw, Settings, CheckCircle2,
   XCircle, AlertCircle, ChevronUp, ChevronDown,
-  Clock, Waves, Wifi, Wind, MapPin, Crosshair,
-  Loader2, TriangleAlert, Eye, EyeOff, Cpu
+  Clock, Waves, Wifi, WifiOff, Wind, MapPin, Crosshair,
+  Loader2, TriangleAlert, Eye, EyeOff, Cpu, Search,
+  ArrowUp, ArrowDown, Filter
 } from 'lucide-react';
 import { containerVariants, itemVariants } from '../../animations/variants';
 import toast from 'react-hot-toast';
 import * as droneService from '../../services/droneService';
 import * as droneApi from '../../services/droneApiService';
 import useSprinklingTimer from '../../hooks/useSprinklingTimer';
+import useDroneSocket from '../../hooks/useDroneSocket';
 import { TIMER_STATES, formatCountdown } from '../../services/sprinklingTimerService';
 
 // Display helpers (module-level, no hook dependency)
@@ -191,9 +193,41 @@ const DroneControlAgent = () => {
   const flushRef      = useRef(null);   // telemetry flush interval
   const flightStartTs = useRef(null);   // takeoff timestamp
   const [cameraError,   setCameraError]   = useState(null);
+  const [cameraLoading, setCameraLoading] = useState(false); // for auto-start
   const [backendStats,  setBackendStats]  = useState(null);  // aggregated stats from backend
   const [sessionActive, setSessionActive] = useState(false);
   const [savingSession, setSavingSession] = useState(false);
+
+  // Activity log state
+  const [activityLog,         setActivityLog]         = useState([]);
+  const [activityLoading,     setActivityLoading]     = useState(false);
+  const [activitySearch,      setActivitySearch]      = useState('');
+  const [activityCategory,    setActivityCategory]    = useState('all');
+  const [activityPage,        setActivityPage]        = useState(1);
+  const [activityTotal,       setActivityTotal]       = useState(0);
+  const [activityExpanded,    setActivityExpanded]    = useState(true);
+
+  // Socket hook — shared real-time telemetry stream
+  const socketData = useDroneSocket({
+    sessionId: sessionIdRef.current,
+    autoJoin: false,
+    onTelemetry: (snap) => {
+      // Merge socket telemetry into local state (non-destructively)
+      setTelemetry(t => ({
+        ...t,
+        battery:        snap.battery        ?? t.battery,
+        altitude:       snap.altitude       ?? t.altitude,
+        speed:          snap.speed          ?? t.speed,
+        heading:        snap.heading        ?? t.heading,
+        gpsLock:        snap.gpsLock        ?? t.gpsLock,
+        satellites:     snap.satellites     ?? t.satellites,
+        signalStrength: snap.signalStrength  ?? t.signalStrength,
+        flowRate:       snap.flowRate        ?? t.flowRate,
+        tankLevel:      snap.tankLevel       ?? t.tankLevel,
+        remainingFlightTime: snap.remainingFlightTime ?? t.remainingFlightTime,
+      }));
+    },
+  });
 
   // ── Timed Sprinkling Timer ────────────────────────────
   const spTimer = useSprinklingTimer({
@@ -325,14 +359,27 @@ const DroneControlAgent = () => {
     };
   }, []);
 
-  // ── Camera stream cleanup on unmount ─────────────────
-  useEffect(() => {
-    return () => {
-      if (streamRef.current) {
-        streamRef.current.getTracks().forEach((t) => t.stop());
+
+
+  // ── Load activity log ────────────────────────────────
+  const loadActivityLog = useCallback(async (page = 1) => {
+    setActivityLoading(true);
+    try {
+      const params = { page, limit: 10 };
+      if (activityCategory !== 'all') params.category = activityCategory;
+      if (activitySearch) params.search = activitySearch;
+      const res = await droneApi.getActivityLog(params);
+      if (res.success) {
+        setActivityLog(res.logs || []);
+        setActivityTotal(res.total || 0);
+        setActivityPage(page);
       }
-    };
-  }, []);
+    } catch { /* offline */ } finally {
+      setActivityLoading(false);
+    }
+  }, [activityCategory, activitySearch]);
+
+  useEffect(() => { loadActivityLog(1); }, [activityCategory, activitySearch]); // eslint-disable-line
 
   // ── Generic command executor ─────────────────────────
   // Runs the mock/hardware command AND logs it to the backend session.
@@ -580,7 +627,7 @@ const DroneControlAgent = () => {
         </div>
       </motion.div>
 
-      {/* ── BACKEND STATS STRIP ────────────────────────── */}
+      {/* ── BACKEND STATS STRIP ───────────────────────────── */}
       {backendStats && (
         <motion.div variants={itemVariants} className="flex flex-wrap items-center gap-3 mb-5 p-3 rounded-xl bg-slate-900/40 border border-slate-800">
           <div className="flex items-center gap-1.5 text-xs text-slate-400">
@@ -602,15 +649,32 @@ const DroneControlAgent = () => {
               <span className="text-emerald-300 text-xs font-bold">{value}</span>
             </div>
           ))}
+          {/* Socket status */}
+          <div className="ml-auto flex items-center gap-1.5">
+            <span className={`flex items-center gap-1 px-2 py-0.5 rounded-full border text-[10px] font-bold ${
+              socketData.connected
+                ? 'bg-cyan-500/10 border-cyan-500/30 text-cyan-300'
+                : 'bg-slate-800 border-slate-700 text-slate-500'
+            }`}>
+              {socketData.connected ? <Wifi size={10} /> : <WifiOff size={10} />}
+              {socketData.connected ? 'Socket Live' : 'Local Sim'}
+            </span>
+          </div>
         </motion.div>
       )}
 
-      {/* ── TOP TELEMETRY ROW ──────────────────────────── */}
-      <motion.div variants={itemVariants} className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-        <TelemetryCard icon={Battery}   label="Battery"         value={telemetry.battery.toFixed(0)} unit="%" color={telemetry.battery > 40 ? 'emerald' : 'red'} subtext={`~${telemetry.remainingFlightTime} min left`} />
-        <TelemetryCard icon={ChevronUp} label="Altitude"        value={telemetry.altitude.toFixed(1)} unit="m"   color="blue"   subtext="AGL" />
-        <TelemetryCard icon={Gauge}     label="Ground Speed"    value={telemetry.speed.toFixed(1)}   unit="m/s" color="purple" subtext={`Heading ${Math.floor(telemetry.heading)}°`} />
-        <TelemetryCard icon={Signal}    label="Signal Strength" value={telemetry.signalStrength}     unit="%"   color={telemetry.signalStrength > 70 ? 'cyan' : 'amber'} subtext={`${telemetry.satellites} satellites`} />
+      {/* ── TOP TELEMETRY ROW (8 cards) ────────────────────── */}
+      <motion.div variants={itemVariants} className="grid grid-cols-2 sm:grid-cols-4 xl:grid-cols-4 gap-4 mb-6">
+        <TelemetryCard icon={Battery}   label="Battery"          value={telemetry.battery.toFixed(0)} unit="%" color={telemetry.battery > 40 ? 'emerald' : 'red'} subtext={`~${telemetry.remainingFlightTime} min left`} />
+        <TelemetryCard icon={ChevronUp} label="Altitude"         value={telemetry.altitude.toFixed(1)} unit="m"   color="blue"   subtext="AGL" />
+        <TelemetryCard icon={Gauge}     label="Ground Speed"     value={telemetry.speed.toFixed(1)}   unit="m/s" color="purple" subtext={`Heading ${Math.floor(telemetry.heading)}°`} />
+        <TelemetryCard icon={Signal}    label="Signal"           value={telemetry.signalStrength}     unit="%"   color={telemetry.signalStrength > 70 ? 'cyan' : 'amber'} subtext={`${telemetry.satellites} sats`} />
+      </motion.div>
+      <motion.div variants={itemVariants} className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
+        <TelemetryCard icon={ArrowUp}   label="Vertical Speed"   value={droneState.isFlying ? (Math.random() > 0.5 ? '+' : '') + '0.' + Math.floor(Math.random()*9) : '0.0'} unit="m/s" color="blue" subtext="Climb/Descent" />
+        <TelemetryCard icon={Navigation} label="Flight Mode"     value={droneState.flightMode} color="emerald" subtext="Current mode" />
+        <TelemetryCard icon={Droplets}  label="Water Tank"       value={telemetry.tankLevel}   unit="%" color="cyan"   subtext="Capacity remaining" />
+        <TelemetryCard icon={Activity}  label="Spraying"         value={droneState.isSprinklingActive ? 'ACTIVE' : 'OFF'} color={droneState.isSprinklingActive ? 'cyan' : 'amber'} subtext={`${telemetry.flowRate} L/min`} />
       </motion.div>
 
       {/* ── MAIN GRID ──────────────────────────────────── */}
@@ -1011,162 +1075,189 @@ const DroneControlAgent = () => {
         {/* RIGHT — STATUS, SAFETY & CAMERA FEED */}
         <div className="lg:col-span-2 space-y-5">
 
-          {/* ── CAMERA FEED PANEL ─────────────────────── */}
-          <AnimatePresence>
-            {(droneState.cameraEnabled || cameraError) && (
-              <motion.div
-                key="camera-panel"
-                initial={{ opacity: 0, y: -16, scale: 0.97 }}
-                animate={{ opacity: 1, y: 0, scale: 1 }}
-                exit={{ opacity: 0, y: -16, scale: 0.97 }}
-                transition={{ duration: 0.35, ease: 'easeOut' }}
-              >
-                <Card className="overflow-hidden p-0" hover={false}>
-                  {/* Panel header */}
-                  <div className="flex items-center justify-between px-4 py-2.5 border-b border-slate-800 bg-slate-950/70">
-                    <div className="flex items-center gap-2">
-                      <Camera size={14} className="text-emerald-400" />
-                      <span className="text-sm font-bold text-white">Drone FPV Camera</span>
-                      {droneState.cameraEnabled && !cameraError && (
-                        <span className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-red-500/20 border border-red-500/40 text-red-300 text-xs font-bold">
-                          <span className="w-1.5 h-1.5 rounded-full bg-red-400 animate-pulse" />
-                          LIVE
-                        </span>
-                      )}
-                    </div>
+          {/* ── CAMERA FEED PANEL (always visible) ───────── */}
+          <motion.div variants={itemVariants}>
+            <Card className="overflow-hidden p-0" hover={false}>
+              {/* Panel header */}
+              <div className="flex items-center justify-between px-4 py-2.5 border-b border-slate-800 bg-slate-950/70">
+                <div className="flex items-center gap-2">
+                  <Camera size={14} className="text-emerald-400" />
+                  <span className="text-sm font-bold text-white">Drone FPV Camera</span>
+                  {cameraLoading && (
+                    <span className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-amber-500/20 border border-amber-500/40 text-amber-300 text-xs font-bold">
+                      <Loader2 size={10} className="animate-spin" /> Starting…
+                    </span>
+                  )}
+                  {droneState.cameraEnabled && !cameraError && !cameraLoading && (
+                    <span className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-red-500/20 border border-red-500/40 text-red-300 text-xs font-bold">
+                      <span className="w-1.5 h-1.5 rounded-full bg-red-400 animate-pulse" />
+                      LIVE
+                    </span>
+                  )}
+                </div>
+                <div className="flex items-center gap-3 text-xs text-slate-500">
+                  <span>1080p</span>
+                  <span>30 FPS</span>
+                  <span className={droneState.cameraEnabled ? 'text-emerald-400' : cameraError ? 'text-red-400' : 'text-amber-400'}>
+                    {droneState.cameraEnabled ? 'Connected' : cameraError ? 'Error' : 'Initializing'}
+                  </span>
+                  <button
+                    onClick={handleCameraToggle}
+                    disabled={loading.camera || cameraLoading}
+                    className="flex items-center gap-1.5 px-3 py-1 rounded-lg bg-slate-800 border border-slate-700 text-slate-300 hover:border-slate-600 text-xs font-semibold transition disabled:opacity-50"
+                  >
+                    {droneState.cameraEnabled ? <><EyeOff size={11} /> Disable</> : <><Eye size={11} /> Enable</>}
+                  </button>
+                </div>
+              </div>
+
+              {/* Video viewport */}
+              <div className="relative bg-black" style={{ height: '340px' }}>
+
+                {/* Real camera video element */}
+                <video
+                  ref={videoRef}
+                  autoPlay
+                  playsInline
+                  muted
+                  className={`w-full h-full object-cover transition-opacity duration-500 ${
+                    droneState.cameraEnabled && !cameraError ? 'opacity-100' : 'opacity-0'
+                  }`}
+                />
+
+                {/* Initializing state */}
+                {cameraLoading && !cameraError && (
+                  <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-slate-950">
+                    <Loader2 size={36} className="text-emerald-400 animate-spin" />
+                    <p className="text-slate-400 text-sm">Initializing camera feed…</p>
+                    <p className="text-slate-600 text-xs">Please allow camera access when prompted</p>
+                  </div>
+                )}
+
+                {/* Error state */}
+                {cameraError && !cameraLoading && (
+                  <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-slate-950">
+                    <Camera size={40} className="text-slate-600" />
+                    <p className="text-red-400 text-sm font-semibold text-center px-6">{cameraError}</p>
                     <button
                       onClick={handleCameraToggle}
-                      className="flex items-center gap-1.5 px-3 py-1 rounded-lg bg-red-500/15 border border-red-500/30 text-red-300 hover:bg-red-500/25 text-xs font-semibold transition"
+                      className="px-4 py-2 rounded-lg bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 text-xs font-semibold hover:bg-emerald-500/30 transition"
                     >
-                      <EyeOff size={12} /> Close Feed
+                      Retry Camera
                     </button>
                   </div>
+                )}
 
-                  {/* Video viewport */}
-                  <div className="relative bg-black" style={{ height: '340px' }}>
+                {/* Offline placeholder when not loading and not enabled and no error */}
+                {!droneState.cameraEnabled && !cameraLoading && !cameraError && (
+                  <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-slate-950">
+                    <Camera size={40} className="text-slate-700" />
+                    <p className="text-slate-500 text-sm">Camera feed disabled</p>
+                    <button
+                      onClick={handleCameraToggle}
+                      className="px-4 py-2 rounded-lg bg-blue-500/20 border border-blue-500/40 text-blue-300 text-xs font-semibold hover:bg-blue-500/30 transition"
+                    >
+                      Enable Camera
+                    </button>
+                  </div>
+                )}
 
-                    {/* Real camera video element */}
-                    <video
-                      ref={videoRef}
-                      autoPlay
-                      playsInline
-                      muted
-                      className={`w-full h-full object-cover transition-opacity duration-500 ${
-                        droneState.cameraEnabled && !cameraError ? 'opacity-100' : 'opacity-0'
-                      }`}
+                {/* FPV HUD overlay — only shown when live */}
+                {droneState.cameraEnabled && !cameraError && !cameraLoading && (
+                  <>
+                    {/* Scanline effect */}
+                    <div
+                      className="absolute inset-0 pointer-events-none"
+                      style={{
+                        background: 'repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,0,0,0.04) 2px, rgba(0,0,0,0.04) 4px)',
+                      }}
                     />
 
-                    {/* Error state */}
-                    {cameraError && (
-                      <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-slate-950">
-                        <Camera size={40} className="text-slate-600" />
-                        <p className="text-red-400 text-sm font-semibold text-center px-6">{cameraError}</p>
-                        <button
-                          onClick={handleCameraToggle}
-                          className="px-4 py-2 rounded-lg bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 text-xs font-semibold hover:bg-emerald-500/30 transition"
-                        >
-                          Retry Camera
-                        </button>
+                    {/* Corner brackets */}
+                    {[['top-3 left-3','border-t-2 border-l-2'],['top-3 right-3','border-t-2 border-r-2'],['bottom-3 left-3','border-b-2 border-l-2'],['bottom-3 right-3','border-b-2 border-r-2']].map(([pos, border], i) => (
+                      <div key={i} className={`absolute ${pos} w-6 h-6 ${border} border-emerald-400/70 pointer-events-none`} />
+                    ))}
+
+                    {/* Centre crosshair */}
+                    <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                      <div className="relative w-16 h-16">
+                        <div className="absolute top-1/2 left-0 right-0 h-px bg-emerald-400/50" />
+                        <div className="absolute left-1/2 top-0 bottom-0 w-px bg-emerald-400/50" />
+                        <div className="absolute top-1/2 left-1/2 w-4 h-4 -translate-x-1/2 -translate-y-1/2 rounded-full border border-emerald-400/60" />
                       </div>
-                    )}
+                    </div>
 
-                    {/* FPV HUD overlay — only shown when live */}
-                    {droneState.cameraEnabled && !cameraError && (
-                      <>
-                        {/* Scanline effect */}
-                        <div
-                          className="absolute inset-0 pointer-events-none"
-                          style={{
-                            background: 'repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,0,0,0.04) 2px, rgba(0,0,0,0.04) 4px)',
-                          }}
-                        />
+                    {/* TOP-LEFT — REC + timestamp */}
+                    <div className="absolute top-3 left-10 flex items-center gap-2 pointer-events-none">
+                      <span className="flex items-center gap-1.5 text-red-400 text-xs font-bold font-mono">
+                        <span className="w-2 h-2 rounded-full bg-red-400 animate-pulse" />
+                        REC
+                      </span>
+                      <span className="text-white/60 text-xs font-mono">
+                        {new Date().toLocaleTimeString()}
+                      </span>
+                    </div>
 
-                        {/* Corner brackets */}
-                        {[['top-3 left-3','border-t-2 border-l-2'],['top-3 right-3','border-t-2 border-r-2'],['bottom-3 left-3','border-b-2 border-l-2'],['bottom-3 right-3','border-b-2 border-r-2']].map(([pos, border], i) => (
-                          <div key={i} className={`absolute ${pos} w-6 h-6 ${border} border-emerald-400/70 pointer-events-none`} />
+                    {/* TOP-RIGHT — mode + battery */}
+                    <div className="absolute top-3 right-10 flex items-center gap-3 pointer-events-none">
+                      <span className="text-emerald-400 text-xs font-bold font-mono uppercase">{droneState.flightMode}</span>
+                      <span className={`text-xs font-bold font-mono ${
+                        telemetry.battery > 40 ? 'text-emerald-400' : 'text-red-400'
+                      }`}>
+                        BAT {telemetry.battery.toFixed(0)}%
+                      </span>
+                    </div>
+
+                    {/* BOTTOM-LEFT — altitude + speed */}
+                    <div className="absolute bottom-3 left-10 space-y-0.5 pointer-events-none">
+                      <div className="text-xs font-mono text-emerald-300">
+                        ALT&nbsp;&nbsp;<span className="text-white font-bold">{telemetry.altitude.toFixed(1)} m</span>
+                      </div>
+                      <div className="text-xs font-mono text-emerald-300">
+                        SPD&nbsp;&nbsp;<span className="text-white font-bold">{telemetry.speed.toFixed(1)} m/s</span>
+                      </div>
+                    </div>
+
+                    {/* BOTTOM-RIGHT — heading + GPS */}
+                    <div className="absolute bottom-3 right-10 text-right space-y-0.5 pointer-events-none">
+                      <div className="text-xs font-mono text-emerald-300">
+                        HDG&nbsp;<span className="text-white font-bold">{Math.floor(telemetry.heading)}°</span>
+                      </div>
+                      <div className="text-xs font-mono text-emerald-300">
+                        GPS&nbsp;<span className={telemetry.gpsLock ? 'text-emerald-400 font-bold' : 'text-amber-400 font-bold'}>
+                          {telemetry.gpsLock ? `LOCK (${telemetry.satellites})` : 'SEARCHING'}
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* CENTRE-TOP — drone ID */}
+                    <div className="absolute top-3 left-1/2 -translate-x-1/2 pointer-events-none">
+                      <span className="text-white/50 text-xs font-mono tracking-widest">AGROSENTRY-01</span>
+                    </div>
+
+                    {/* Signal strength bar — bottom centre */}
+                    <div className="absolute bottom-3 left-1/2 -translate-x-1/2 flex flex-col items-center gap-1 pointer-events-none">
+                      <div className="flex items-end gap-0.5">
+                        {[3,5,7,9,11].map((h, i) => (
+                          <div
+                            key={i}
+                            style={{ height: `${h}px`, width: '3px' }}
+                            className={`rounded-sm ${
+                              i < Math.ceil((telemetry.signalStrength / 100) * 5)
+                                ? 'bg-emerald-400'
+                                : 'bg-slate-600'
+                            }`}
+                          />
                         ))}
+                      </div>
+                      <span className="text-emerald-400 text-xs font-mono">{telemetry.signalStrength}%</span>
+                    </div>
+                  </>
+                )}
+              </div>
+            </Card>
+          </motion.div>
 
-                        {/* Centre crosshair */}
-                        <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                          <div className="relative w-16 h-16">
-                            <div className="absolute top-1/2 left-0 right-0 h-px bg-emerald-400/50" />
-                            <div className="absolute left-1/2 top-0 bottom-0 w-px bg-emerald-400/50" />
-                            <div className="absolute top-1/2 left-1/2 w-4 h-4 -translate-x-1/2 -translate-y-1/2 rounded-full border border-emerald-400/60" />
-                          </div>
-                        </div>
-
-                        {/* TOP-LEFT — REC + timestamp */}
-                        <div className="absolute top-3 left-10 flex items-center gap-2 pointer-events-none">
-                          <span className="flex items-center gap-1.5 text-red-400 text-xs font-bold font-mono">
-                            <span className="w-2 h-2 rounded-full bg-red-400 animate-pulse" />
-                            REC
-                          </span>
-                          <span className="text-white/60 text-xs font-mono">
-                            {new Date().toLocaleTimeString()}
-                          </span>
-                        </div>
-
-                        {/* TOP-RIGHT — mode + battery */}
-                        <div className="absolute top-3 right-10 flex items-center gap-3 pointer-events-none">
-                          <span className="text-emerald-400 text-xs font-bold font-mono uppercase">{droneState.flightMode}</span>
-                          <span className={`text-xs font-bold font-mono ${
-                            telemetry.battery > 40 ? 'text-emerald-400' : 'text-red-400'
-                          }`}>
-                            BAT {telemetry.battery.toFixed(0)}%
-                          </span>
-                        </div>
-
-                        {/* BOTTOM-LEFT — altitude + speed */}
-                        <div className="absolute bottom-3 left-10 space-y-0.5 pointer-events-none">
-                          <div className="text-xs font-mono text-emerald-300">
-                            ALT&nbsp;&nbsp;<span className="text-white font-bold">{telemetry.altitude.toFixed(1)} m</span>
-                          </div>
-                          <div className="text-xs font-mono text-emerald-300">
-                            SPD&nbsp;&nbsp;<span className="text-white font-bold">{telemetry.speed.toFixed(1)} m/s</span>
-                          </div>
-                        </div>
-
-                        {/* BOTTOM-RIGHT — heading + GPS */}
-                        <div className="absolute bottom-3 right-10 text-right space-y-0.5 pointer-events-none">
-                          <div className="text-xs font-mono text-emerald-300">
-                            HDG&nbsp;<span className="text-white font-bold">{Math.floor(telemetry.heading)}°</span>
-                          </div>
-                          <div className="text-xs font-mono text-emerald-300">
-                            GPS&nbsp;<span className={telemetry.gpsLock ? 'text-emerald-400 font-bold' : 'text-amber-400 font-bold'}>
-                              {telemetry.gpsLock ? `LOCK (${telemetry.satellites})` : 'SEARCHING'}
-                            </span>
-                          </div>
-                        </div>
-
-                        {/* CENTRE-TOP — drone ID */}
-                        <div className="absolute top-3 left-1/2 -translate-x-1/2 pointer-events-none">
-                          <span className="text-white/50 text-xs font-mono tracking-widest">AGROSENTRY-01</span>
-                        </div>
-
-                        {/* Signal strength bar — bottom centre */}
-                        <div className="absolute bottom-3 left-1/2 -translate-x-1/2 flex flex-col items-center gap-1 pointer-events-none">
-                          <div className="flex items-end gap-0.5">
-                            {[3,5,7,9,11].map((h, i) => (
-                              <div
-                                key={i}
-                                style={{ height: `${h}px`, width: '3px' }}
-                                className={`rounded-sm ${
-                                  i < Math.ceil((telemetry.signalStrength / 100) * 5)
-                                    ? 'bg-emerald-400'
-                                    : 'bg-slate-600'
-                                }`}
-                              />
-                            ))}
-                          </div>
-                          <span className="text-emerald-400 text-xs font-mono">{telemetry.signalStrength}%</span>
-                        </div>
-                      </>
-                    )}
-                  </div>
-                </Card>
-              </motion.div>
-            )}
-          </AnimatePresence>
 
           {/* Drone Status */}
           <motion.div variants={itemVariants}>
@@ -1260,6 +1351,159 @@ const DroneControlAgent = () => {
               <TelemetryCard icon={Activity} label="Mission Progress"    value={telemetry.missionProgress.toFixed(0)} unit="%" color="blue" subtext="Waypoints completed" />
               <TelemetryCard icon={Clock}    label="Flight Time Left"    value={telemetry.remainingFlightTime}     unit="min" color={telemetry.remainingFlightTime > 15 ? 'purple' : 'amber'} subtext="Est. remaining" />
             </div>
+          </motion.div>
+
+          {/* ── DRONE ACTIVITY HISTORY ─────────────────────────── */}
+          <motion.div variants={itemVariants}>
+            <Card className="p-5" hover={false}>
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                  <Activity size={14} className="text-emerald-400" />
+                  Drone Activity History
+                  {activityTotal > 0 && (
+                    <span className="px-2 py-0.5 rounded-full bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 text-xs">
+                      {activityTotal}
+                    </span>
+                  )}
+                </h3>
+                <button
+                  onClick={() => setActivityExpanded(e => !e)}
+                  className="p-1.5 rounded-lg bg-slate-800 border border-slate-700 text-slate-400 hover:text-white transition"
+                >
+                  {activityExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                </button>
+              </div>
+
+              <AnimatePresence>
+                {activityExpanded && (
+                  <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }}>
+                    {/* Filter chips */}
+                    <div className="flex flex-wrap gap-2 mb-4">
+                      {/* Search */}
+                      <div className="flex items-center gap-1.5 flex-1 min-w-[140px] bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5">
+                        <Search size={11} className="text-slate-500" />
+                        <input
+                          type="text" placeholder="Search events…" value={activitySearch}
+                          onChange={e => setActivitySearch(e.target.value)}
+                          className="bg-transparent text-xs text-white placeholder-slate-500 focus:outline-none flex-1"
+                        />
+                      </div>
+                      {/* Category filters */}
+                      <div className="flex flex-wrap gap-1">
+                        {['all', 'flight', 'mission', 'sprinkle', 'camera', 'emergency', 'timer'].map(cat => {
+                          const catColors = {
+                            all: 'emerald', flight: 'blue', mission: 'purple',
+                            sprinkle: 'cyan', camera: 'amber', emergency: 'red', timer: 'orange',
+                          };
+                          const isActive = activityCategory === cat;
+                          return (
+                            <button key={cat}
+                              onClick={() => setActivityCategory(cat)}
+                              className={`px-2.5 py-1 rounded-lg border text-[10px] font-bold uppercase transition ${
+                                isActive
+                                  ? 'bg-emerald-500/20 border-emerald-500/40 text-emerald-300'
+                                  : 'bg-slate-900 border-slate-700 text-slate-400 hover:border-slate-600'
+                              }`}
+                            >
+                              {cat}
+                            </button>
+                          );
+                        })}
+                      </div>
+                      <button
+                        onClick={() => loadActivityLog(activityPage)}
+                        className="p-1.5 rounded-lg border border-slate-700 bg-slate-900 text-slate-400 hover:text-white transition"
+                      >
+                        <RefreshCw size={12} className={activityLoading ? 'animate-spin' : ''} />
+                      </button>
+                    </div>
+
+                    {/* Log table */}
+                    {activityLoading ? (
+                      <div className="flex items-center justify-center py-8 gap-2 text-slate-500">
+                        <Loader2 size={16} className="animate-spin" /> Loading activity…
+                      </div>
+                    ) : activityLog.length === 0 ? (
+                      <div className="text-center py-8 text-slate-500 text-sm">
+                        No activity logged yet. Start flying to see events here.
+                      </div>
+                    ) : (
+                      <>
+                        <div className="overflow-x-auto">
+                          <table className="w-full text-xs">
+                            <thead>
+                              <tr className="border-b border-slate-800">
+                                {['Timestamp', 'Event', 'Category', 'Operator', 'Status', 'Details'].map(h => (
+                                  <th key={h} className="pb-2 pr-4 text-left text-slate-500 font-semibold">{h}</th>
+                                ))}
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-800/50">
+                              {activityLog.map((log, i) => (
+                                <tr key={log._id || i} className="hover:bg-slate-800/30 transition">
+                                  <td className="py-2.5 pr-4 text-slate-400 whitespace-nowrap font-mono">
+                                    {new Date(log.timestamp).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                                  </td>
+                                  <td className="py-2.5 pr-4">
+                                    <span className="text-white font-bold">{log.eventType}</span>
+                                  </td>
+                                  <td className="py-2.5 pr-4">
+                                    <span className={`px-2 py-0.5 rounded-full border text-[10px] font-bold ${
+                                      log.category === 'emergency' ? 'bg-red-500/15 border-red-500/30 text-red-300' :
+                                      log.category === 'flight'    ? 'bg-blue-500/15 border-blue-500/30 text-blue-300' :
+                                      log.category === 'mission'   ? 'bg-purple-500/15 border-purple-500/30 text-purple-300' :
+                                      log.category === 'sprinkle'  ? 'bg-cyan-500/15 border-cyan-500/30 text-cyan-300' :
+                                      log.category === 'timer'     ? 'bg-amber-500/15 border-amber-500/30 text-amber-300' :
+                                      'bg-slate-800 border-slate-700 text-slate-400'
+                                    }`}>
+                                      {(log.category || 'system').toUpperCase()}
+                                    </span>
+                                  </td>
+                                  <td className="py-2.5 pr-4 text-slate-400">{log.operator || 'operator'}</td>
+                                  <td className="py-2.5 pr-4">
+                                    <span className={log.status === 'success' ? 'text-emerald-400' : log.status === 'warning' ? 'text-amber-400' : 'text-red-400'}>
+                                      {log.status || 'success'}
+                                    </span>
+                                  </td>
+                                  <td className="py-2.5 text-slate-500 max-w-[180px] truncate" title={log.summary}>
+                                    {log.summary || '—'}
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+
+                        {/* Pagination */}
+                        {activityTotal > 10 && (
+                          <div className="flex items-center justify-between mt-3 pt-3 border-t border-slate-800">
+                            <span className="text-xs text-slate-500">
+                              Showing {(activityPage - 1) * 10 + 1}–{Math.min(activityPage * 10, activityTotal)} of {activityTotal}
+                            </span>
+                            <div className="flex gap-1">
+                              <button
+                                disabled={activityPage <= 1}
+                                onClick={() => loadActivityLog(activityPage - 1)}
+                                className="px-2.5 py-1 rounded-lg border border-slate-700 bg-slate-900 text-slate-400 hover:text-white disabled:opacity-40 text-xs transition"
+                              >
+                                ← Prev
+                              </button>
+                              <button
+                                disabled={activityPage * 10 >= activityTotal}
+                                onClick={() => loadActivityLog(activityPage + 1)}
+                                className="px-2.5 py-1 rounded-lg border border-slate-700 bg-slate-900 text-slate-400 hover:text-white disabled:opacity-40 text-xs transition"
+                              >
+                                Next →
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                      </>
+                    )}
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </Card>
           </motion.div>
 
         </div>

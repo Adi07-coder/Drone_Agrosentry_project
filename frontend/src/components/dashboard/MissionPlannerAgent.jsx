@@ -13,12 +13,14 @@ import {
   Info, Navigation, Clock, Battery, Droplets,
   MapPin, Layers, Grid, Zap, X, Check, FileJson, Loader2,
   Square, Shield, Hexagon, Crosshair, Locate, Satellite,
-  Activity, Ruler, Eye, EyeOff
+  Activity, Ruler, Eye, EyeOff, RefreshCw, Signal, Wifi,
+  WifiOff, ChevronDown, ChevronUp, Search, Filter
 } from 'lucide-react';
 import { containerVariants, itemVariants } from '../../animations/variants';
 import toast from 'react-hot-toast';
 import * as missionService from '../../services/missionService';
 import * as droneApi from '../../services/droneApiService';
+import useDroneSocket from '../../hooks/useDroneSocket';
 
 // ─────────────────────────────────────────────────────────
 // FIX LEAFLET DEFAULT ICON (Vite asset bundling issue)
@@ -106,6 +108,36 @@ const gpsIcon = L.divIcon({
   iconSize:   [24, 24],
   iconAnchor: [12, 12],
 });
+
+// Drone marker — helicopter style in cyan
+const droneIcon = L.divIcon({
+  className: '',
+  html: `
+    <div style="position:relative;width:36px;height:36px;">
+      <div style="
+        position:absolute;inset:0;border-radius:50%;
+        background:rgba(6,182,212,0.2);
+        animation:ping 2s cubic-bezier(0,0,0.2,1) infinite;
+      "></div>
+      <div style="
+        position:absolute;top:6px;left:6px;right:6px;bottom:6px;
+        border-radius:50%;background:#0e1729;
+        border:2.5px solid #06b6d4;
+        box-shadow:0 0 14px #06b6d480;
+        display:flex;align-items:center;justify-content:center;
+        font-size:14px;
+      ">✈</div>
+    </div>`,
+  iconSize:   [36, 36],
+  iconAnchor: [18, 18],
+});
+
+// Waypoint color by mission status
+const missionWpColor = (index, simIndex, isCompleted) => {
+  if (isCompleted) return '#10b981';   // green — done
+  if (index === simIndex) return '#06b6d4'; // cyan — current
+  return '#64748b';                     // grey — remaining
+};
 
 // ─────────────────────────────────────────────────────────
 // MAP CLICK HANDLER (inner component — has access to map)
@@ -342,8 +374,22 @@ const MissionPlannerAgent = () => {
   const [gpsAccuracy,   setGpsAccuracy]   = useState(null);
   const [gpsLoading,    setGpsLoading]    = useState(true);
   const [gpsError,      setGpsError]      = useState(null);
+  const [gpsLastUpdated, setGpsLastUpdated] = useState(null);
   const [mapCenter,     setMapCenter]     = useState(DEFAULT_CENTER);
   const [flyTrigger,    setFlyTrigger]    = useState(0);
+  const [gpsRefreshing, setGpsRefreshing] = useState(false);
+
+  // Mission history state
+  const [missionHistory,       setMissionHistory]       = useState([]);
+  const [historyLoading,       setHistoryLoading]       = useState(false);
+  const [historySearch,        setHistorySearch]        = useState('');
+  const [historyStatusFilter,  setHistoryStatusFilter]  = useState('all');
+  const [historyPage,          setHistoryPage]          = useState(1);
+  const [historyTotal,         setHistoryTotal]         = useState(0);
+  const [historyExpanded,      setHistoryExpanded]      = useState(true);
+
+  // Socket for real-time telemetry overlay
+  const socketData = useDroneSocket({ autoJoin: false });
 
   const simRef     = useRef(null);
   const watchIdRef = useRef(null);
@@ -354,6 +400,27 @@ const MissionPlannerAgent = () => {
       .then(res => { if (res.success) setCloudMissions(res.missions); })
       .catch(() => {}); // gracefully degrade offline
   }, []);
+
+  // ── Load mission history ─────────────────────────────
+  const loadMissionHistory = useCallback(async (page = 1) => {
+    setHistoryLoading(true);
+    try {
+      const res = await droneApi.getMissions();
+      if (res.success) {
+        const filtered = res.missions.filter(m => {
+          const matchStatus = historyStatusFilter === 'all' || m.status === historyStatusFilter;
+          const matchSearch = !historySearch || m.name?.toLowerCase().includes(historySearch.toLowerCase());
+          return matchStatus && matchSearch;
+        });
+        setMissionHistory(filtered);
+        setHistoryTotal(filtered.length);
+      }
+    } catch { /* offline */ } finally {
+      setHistoryLoading(false);
+    }
+  }, [historyStatusFilter, historySearch]);
+
+  useEffect(() => { loadMissionHistory(1); }, [historyStatusFilter, historySearch]); // eslint-disable-line
 
   // ── Real-time GPS via browser Geolocation API ─────────
   useEffect(() => {
@@ -372,6 +439,7 @@ const MissionPlannerAgent = () => {
         setGpsAccuracy(accuracy);
         setGpsError(null);
         setGpsLoading(false);
+        setGpsLastUpdated(new Date());
         // First fix — fly map to user location
         setMapCenter([lat, lng]);
       },
@@ -388,6 +456,45 @@ const MissionPlannerAgent = () => {
       }
     };
   }, []);
+
+  // ── Refresh GPS manually ─────────────────────────────
+  const handleRefreshGPS = useCallback(async () => {
+    setGpsRefreshing(true);
+    try {
+      // 1. Try backend telemetry for drone GPS first
+      const res = await droneApi.getDroneLocation?.();
+      if (res?.success && res.location) {
+        const { lat, lng } = res.location;
+        setGpsPosition({ lat, lng });
+        setGpsLastUpdated(new Date());
+        setMapCenter([lat, lng]);
+        setFlyTrigger(t => t + 1);
+        toast.success('Map re-centered on drone position');
+        setGpsRefreshing(false);
+        return;
+      }
+    } catch { /* fallback */ }
+    // 2. Fallback: re-query browser geolocation
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          const { latitude: lat, longitude: lng, accuracy } = pos.coords;
+          setGpsPosition({ lat, lng });
+          setGpsAccuracy(accuracy);
+          setGpsLastUpdated(new Date());
+          setMapCenter([lat, lng]);
+          setFlyTrigger(t => t + 1);
+          toast.success('GPS refreshed and map re-centered');
+          setGpsRefreshing(false);
+        },
+        () => { toast.error('GPS refresh failed'); setGpsRefreshing(false); },
+        { enableHighAccuracy: true, timeout: 8000 }
+      );
+    } else {
+      setGpsRefreshing(false);
+    }
+  }, []);
+
 
   // ── Validation ─────────────────────────────────────────
   const warnings = missionService.validateMission(waypoints);
@@ -633,8 +740,20 @@ const MissionPlannerAgent = () => {
           <p className="text-slate-400 mt-1">Real-time GPS mission planning with OpenStreetMap satellite view</p>
         </div>
 
-        {/* GPS status chip */}
-        <div className="flex items-center gap-3">
+        {/* GPS status + refresh + chips */}
+        <div className="flex items-center gap-2 flex-wrap">
+          {/* Refresh button */}
+          <motion.button
+            whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}
+            onClick={handleRefreshGPS}
+            disabled={gpsRefreshing}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-slate-700 bg-slate-800 text-slate-300 text-xs font-semibold hover:border-slate-600 hover:text-white transition disabled:opacity-50"
+          >
+            <RefreshCw size={12} className={gpsRefreshing ? 'animate-spin' : ''} />
+            Refresh GPS
+          </motion.button>
+
+          {/* GPS chip */}
           <div className={`flex items-center gap-2 px-3 py-1.5 rounded-xl border text-xs font-semibold ${
             gpsLoading ? 'bg-amber-500/10 border-amber-500/30 text-amber-300' :
             gpsError   ? 'bg-red-500/10 border-red-500/30 text-red-300' :
@@ -645,6 +764,7 @@ const MissionPlannerAgent = () => {
              gpsError   ? gpsError :
              `GPS ±${Math.round(gpsAccuracy || 0)}m — ${gpsPosition?.lat.toFixed(5)}, ${gpsPosition?.lng.toFixed(5)}`}
           </div>
+
           <span className="px-3 py-1.5 rounded-xl bg-slate-800 border border-slate-700 text-xs text-slate-300">
             {waypoints.length} WP{waypoints.length !== 1 ? 's' : ''}
           </span>
@@ -653,11 +773,15 @@ const MissionPlannerAgent = () => {
               {errors.length} Error{errors.length > 1 ? 's' : ''}
             </span>
           )}
-          {cloudMissions.length > 0 && (
-            <span className="px-3 py-1.5 rounded-xl bg-blue-500/10 border border-blue-500/20 text-blue-300 text-xs font-semibold flex items-center gap-1.5">
-              ☁ {cloudMissions.length} saved
-            </span>
-          )}
+          {/* Socket connection badge */}
+          <span className={`flex items-center gap-1 px-2.5 py-1.5 rounded-xl border text-xs font-semibold ${
+            socketData.connected
+              ? 'bg-cyan-500/10 border-cyan-500/30 text-cyan-300'
+              : 'bg-slate-800 border-slate-700 text-slate-500'
+          }`}>
+            {socketData.connected ? <Wifi size={11} /> : <WifiOff size={11} />}
+            {socketData.connected ? 'Live' : 'Offline'}
+          </span>
         </div>
       </motion.div>
 
@@ -707,6 +831,29 @@ const MissionPlannerAgent = () => {
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* ── TELEMETRY OVERLAY STRIP ───────────────────────── */}
+      <motion.div variants={itemVariants}>
+        <div className="grid grid-cols-4 sm:grid-cols-7 gap-2 mb-4">
+          {[
+            { label: 'GPS',        value: socketData.telemetry.gpsLock ? '3D Fix' : 'No Fix',  color: socketData.telemetry.gpsLock ? 'text-emerald-400' : 'text-red-400', icon: Satellite },
+            { label: 'Latitude',   value: socketData.telemetry.lat?.toFixed(5) + '°',          color: 'text-cyan-400',    icon: Locate },
+            { label: 'Longitude',  value: socketData.telemetry.lng?.toFixed(5) + '°',          color: 'text-cyan-400',    icon: Locate },
+            { label: 'Satellites', value: socketData.telemetry.satellites ?? '—',               color: 'text-blue-400',    icon: Satellite },
+            { label: 'Altitude',   value: `${socketData.telemetry.altitude?.toFixed(1) ?? 0} m`, color: 'text-purple-400', icon: Activity },
+            { label: 'Signal',     value: `${socketData.telemetry.signalStrength ?? 0}%`,       color: socketData.telemetry.signalStrength > 70 ? 'text-emerald-400' : 'text-amber-400', icon: Signal },
+            { label: 'Connection', value: socketData.connected ? 'Live' : 'Local',              color: socketData.connected ? 'text-cyan-400' : 'text-slate-400', icon: socketData.connected ? Wifi : WifiOff },
+          ].map(({ label, value, color, icon: Icon }) => (
+            <div key={label} className="bg-slate-900/60 border border-slate-800 rounded-xl p-2.5 flex flex-col gap-1">
+              <div className="flex items-center gap-1 text-slate-500">
+                <Icon size={10} />
+                <span className="text-[10px] font-medium">{label}</span>
+              </div>
+              <span className={`text-xs font-bold font-mono ${color}`}>{value}</span>
+            </div>
+          ))}
+        </div>
+      </motion.div>
 
       {/* ── TOOLBAR ─────────────────────────────────────── */}
       <motion.div variants={itemVariants}>
@@ -1093,6 +1240,129 @@ const MissionPlannerAgent = () => {
           </Card>
         </motion.div>
       </div>
+
+      {/* ── MISSION HISTORY PANEL ─────────────────────────── */}
+      <motion.div variants={itemVariants} className="mt-5">
+        <Card className="p-5" hover={false}>
+          {/* Header */}
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-sm font-bold text-white flex items-center gap-2">
+              <Clock size={14} className="text-blue-400" />
+              Mission History
+              {historyTotal > 0 && (
+                <span className="px-2 py-0.5 rounded-full bg-blue-500/15 border border-blue-500/30 text-blue-300 text-xs">
+                  {historyTotal}
+                </span>
+              )}
+            </h3>
+            <button
+              onClick={() => setHistoryExpanded(e => !e)}
+              className="p-1.5 rounded-lg bg-slate-800 border border-slate-700 text-slate-400 hover:text-white transition"
+            >
+              {historyExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+            </button>
+          </div>
+
+          <AnimatePresence>
+            {historyExpanded && (
+              <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }}>
+                {/* Filters */}
+                <div className="flex flex-wrap gap-2 mb-4">
+                  <div className="flex items-center gap-1.5 flex-1 min-w-[160px] bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5">
+                    <Search size={12} className="text-slate-500" />
+                    <input
+                      type="text" placeholder="Search missions…" value={historySearch}
+                      onChange={e => setHistorySearch(e.target.value)}
+                      className="bg-transparent text-xs text-white placeholder-slate-500 focus:outline-none flex-1"
+                    />
+                  </div>
+                  <div className="flex gap-1">
+                    {['all', 'draft', 'active', 'completed'].map(s => (
+                      <button key={s}
+                        onClick={() => setHistoryStatusFilter(s)}
+                        className={`px-2.5 py-1.5 rounded-lg border text-xs font-semibold transition ${
+                          historyStatusFilter === s
+                            ? 'bg-blue-500/20 border-blue-500/40 text-blue-300'
+                            : 'bg-slate-900 border-slate-700 text-slate-400 hover:border-slate-600'
+                        }`}
+                      >
+                        {s.charAt(0).toUpperCase() + s.slice(1)}
+                      </button>
+                    ))}
+                  </div>
+                  <button
+                    onClick={() => loadMissionHistory(1)}
+                    className="p-1.5 rounded-lg border border-slate-700 bg-slate-900 text-slate-400 hover:text-white transition"
+                  >
+                    <RefreshCw size={13} className={historyLoading ? 'animate-spin' : ''} />
+                  </button>
+                </div>
+
+                {/* Table */}
+                {historyLoading ? (
+                  <div className="flex items-center justify-center py-8 gap-2 text-slate-500">
+                    <Loader2 size={16} className="animate-spin" /> Loading history…
+                  </div>
+                ) : missionHistory.length === 0 ? (
+                  <div className="text-center py-8 text-slate-500 text-sm">
+                    No saved missions yet. Create a mission and save it to see history here.
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-xs">
+                      <thead>
+                        <tr className="border-b border-slate-800">
+                          {['Mission Name', 'Date', 'Waypoints', 'Distance', 'Est. Time', 'Status', ''].map(h => (
+                            <th key={h} className="pb-2 pr-4 text-left text-slate-500 font-semibold">{h}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-800/50">
+                        {missionHistory.map(m => (
+                          <tr key={m._id} className="hover:bg-slate-800/30 transition group">
+                            <td className="py-2.5 pr-4">
+                              <span className="text-white font-semibold truncate block max-w-[160px]" title={m.name}>{m.name}</span>
+                            </td>
+                            <td className="py-2.5 pr-4 text-slate-400 whitespace-nowrap">
+                              {new Date(m.updatedAt || m.createdAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: '2-digit' })}
+                            </td>
+                            <td className="py-2.5 pr-4 text-slate-300">
+                              {m.waypoints?.length ?? 0} WPs
+                            </td>
+                            <td className="py-2.5 pr-4 text-slate-300">
+                              {m.totalDistanceM ? (m.totalDistanceM >= 1000 ? `${(m.totalDistanceM/1000).toFixed(1)} km` : `${Math.round(m.totalDistanceM)} m`) : '—'}
+                            </td>
+                            <td className="py-2.5 pr-4 text-slate-300">
+                              {m.estimatedTimeMin ? `~${m.estimatedTimeMin} min` : '—'}
+                            </td>
+                            <td className="py-2.5 pr-4">
+                              <span className={`px-2 py-0.5 rounded-full border text-[10px] font-bold ${
+                                m.status === 'completed' ? 'bg-emerald-500/15 border-emerald-500/30 text-emerald-300' :
+                                m.status === 'active'    ? 'bg-cyan-500/15 border-cyan-500/30 text-cyan-300' :
+                                                          'bg-slate-800 border-slate-700 text-slate-400'
+                              }`}>
+                                {(m.status || 'draft').toUpperCase()}
+                              </span>
+                            </td>
+                            <td className="py-2.5">
+                              <button
+                                onClick={() => handleLoadCloudMission(m._id)}
+                                className="opacity-0 group-hover:opacity-100 px-2 py-1 rounded-lg bg-blue-500/15 border border-blue-500/30 text-blue-300 text-[10px] font-semibold hover:bg-blue-500/25 transition"
+                              >
+                                Load
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </Card>
+      </motion.div>
 
       {/* Leaflet tooltip dark style injected */}
       <style>{`

@@ -179,3 +179,44 @@ export const flushTelemetry = async (sessionId, latestSnap) => {
     // Silently fail — telemetry push is best-effort
   }
 };
+
+// ─────────────────────────────────────────────────────────
+// NEW REAL-TIME STATUS ENDPOINTS
+// ─────────────────────────────────────────────────────────
+
+/** GET /api/drone/status — current drone status */
+export const getDroneStatus = async () => {
+  const { data } = await api.get('/drone/status');
+  return data;
+};
+
+/** GET /api/drone/telemetry — latest telemetry snapshot */
+export const getDroneTelemetry = async () => {
+  const { data } = await api.get('/drone/telemetry');
+  return data;
+};
+
+/** GET /api/drone/location — GPS position for mission planner */
+export const getDroneLocation = async () => {
+  const { data } = await api.get('/drone/location');
+  return data;
+};
+
+/** GET /api/drone/camera-status — camera health */
+export const getCameraStatus = async () => {
+  const { data } = await api.get('/drone/camera-status');
+  return data;
+};
+
+/** GET /api/drone/activity — paginated activity log */
+export const getActivityLog = async (params = {}) => {
+  const { data } = await api.get('/drone/activity', { params });
+  return data;
+};
+
+/** GET /api/drone/missions/history — mission history */
+export const getMissionHistory = async (params = {}) => {
+  const { data } = await api.get('/drone/missions/history', { params });
+  return data;
+};
+

@@ -133,7 +133,7 @@ export const AuthProvider = ({ children }) => {
       if (token) {
         await axios.post(`${API}/auth/logout`, {}, {
           headers: { Authorization: `Bearer ${token}` }
-        }).catch(() => {}); // ignore logout API errors
+        }).catch(() => { }); // ignore logout API errors
       }
     } finally {
       _clearSession();
