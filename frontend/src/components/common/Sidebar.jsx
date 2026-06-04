@@ -13,7 +13,9 @@ import {
   Upload,
   Activity,
   History,
-  FileText
+  FileText,
+  Radio,
+  Map
 } from 'lucide-react';
 
 const Sidebar = ({ userRole = 'user', onLogout }) => {
@@ -37,6 +39,8 @@ const Sidebar = ({ userRole = 'user', onLogout }) => {
     { label: 'Upload Image', icon: Upload, path: '/dashboard/upload-detection' },
     { label: 'Symptoms Based Recommendation', icon: Activity, path: '/dashboard/symptoms-recommendation' },
     { label: 'History Scans Record', icon: History, path: '/dashboard/history' },
+    { label: 'Drone Control System', icon: Radio, path: '/dashboard/drone-control-system' },
+    { label: 'Mission Planner', icon: Map, path: '/dashboard/mission-planner' },
   ];
 
   const adminMenuItems = [
@@ -45,6 +49,8 @@ const Sidebar = ({ userRole = 'user', onLogout }) => {
     { label: 'Upload Image', icon: Upload, path: '/admin/upload-detection' },
     { label: 'Symptoms Based Recommendation', icon: Activity, path: '/admin/symptoms-recommendation' },
     { label: 'History Scans Record', icon: History, path: '/admin/history' },
+    { label: 'Drone Control System', icon: Radio, path: '/admin/drone-control-system' },
+    { label: 'Mission Planner', icon: Map, path: '/admin/mission-planner' },
     { label: 'Login Logs', icon: FileText, path: '/admin/login-logs' },
   ];
 

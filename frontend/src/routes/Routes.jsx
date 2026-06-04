@@ -22,6 +22,8 @@ import UploadDetection from '../pages/UploadDetection';
 import SymptomsRecommendation from '../pages/SymptomsRecommendation';
 import HistoryScans from '../pages/HistoryScans';
 import LoginLogs from '../pages/admin/LoginLogs';
+import DroneControlSystem from '../pages/DroneControlSystem';
+import MissionPlanner from '../pages/MissionPlanner';
 
 const AppRoutes = () => {
   const { user, admin, isAuthenticated } = useAuth();
@@ -56,6 +58,8 @@ const AppRoutes = () => {
         <Route path="upload-detection" element={<UploadDetection />} />
         <Route path="symptoms-recommendation" element={<SymptomsRecommendation />} />
         <Route path="history" element={<HistoryScans />} />
+        <Route path="drone-control-system" element={<DroneControlSystem />} />
+        <Route path="mission-planner" element={<MissionPlanner />} />
       </Route>
       <Route
         path="/disease/:id"
@@ -81,6 +85,8 @@ const AppRoutes = () => {
         <Route path="upload-detection" element={<UploadDetection />} />
         <Route path="symptoms-recommendation" element={<SymptomsRecommendation />} />
         <Route path="history" element={<HistoryScans />} />
+        <Route path="drone-control-system" element={<DroneControlSystem />} />
+        <Route path="mission-planner" element={<MissionPlanner />} />
         <Route path="login-logs" element={<LoginLogs />} />
       </Route>
 

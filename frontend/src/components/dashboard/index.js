@@ -4,3 +4,5 @@ export { default as RecentScans } from './RecentScans';
 export { default as ImageUploadAgent } from './ImageUploadAgent';
 export { default as SymptomBasedAgent } from './SymptomBasedAgent';
 export { default as LiveCameraAgent } from './LiveCameraAgent';
+export { default as DroneControlAgent } from './DroneControlAgent';
+export { default as MissionPlannerAgent } from './MissionPlannerAgent';
