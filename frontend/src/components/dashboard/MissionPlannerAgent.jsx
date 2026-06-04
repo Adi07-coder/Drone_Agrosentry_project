@@ -9,7 +9,7 @@ import {
   Info, Crosshair, Navigation, Clock, Battery, Droplets,
   MapPin, Layers, Grid, Target, Zap, ChevronDown, ChevronUp,
   Eye, EyeOff, Ruler, Activity, X, Check, FileJson, Loader2,
-  Square, Circle, Pentagon
+  Square, Circle, Shield, Hexagon
 } from 'lucide-react';
 import { containerVariants, itemVariants } from '../../animations/variants';
 import toast from 'react-hot-toast';
@@ -707,7 +707,7 @@ const MissionPlannerAgent = () => {
               {[
                 { tool: TOOLS.SELECT,   icon: Move,      label: 'Select' },
                 { tool: TOOLS.WAYPOINT, icon: MapPin,     label: 'Waypoint' },
-                { tool: TOOLS.POLYGON,  icon: Pentagon,   label: 'Polygon' },
+                { tool: TOOLS.POLYGON,  icon: Hexagon,    label: 'Polygon' },
               ].map(({ tool, icon: Icon, label }) => (
                 <button
                   key={tool}
