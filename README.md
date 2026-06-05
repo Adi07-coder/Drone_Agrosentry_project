@@ -14,6 +14,21 @@ By enabling early disease detection and precision agriculture, AgroSentry helps 
 
 ---
 
+#  Demo
+
+### Hardware Explanation
+
+https://q.me-qr.com/k8hn18db
+
+### Working 
+https://github.com/user-attachments/assets/42569c88-fe26-43ba-b68f-dbf628da3928
+
+### UI/UX Prototype
+
+https://q.me-qr.com/7dhje6fr
+
+---
+
 #  Target SDG Goals
 
 ### SDG 2 – Zero Hunger
@@ -227,17 +242,7 @@ python main.py
 
 ---
 
-#  Demo
 
-### Hardware Explanation
-
-https://q.me-qr.com/k8hn18db
-
-### UI/UX Prototype
-
-https://q.me-qr.com/7dhje6fr
-
----
 
 #  Team Garud_X
 
