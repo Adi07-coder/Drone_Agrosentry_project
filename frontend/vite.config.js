@@ -25,4 +25,24 @@ export default defineConfig({
     // Fallback so VITE_API_URL always resolves
     'import.meta.env.VITE_API_URL': JSON.stringify(process.env.VITE_API_URL || '/api'),
   },
+  build: {
+    chunkSizeWarningLimit: 1000,
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          vendor: [
+            'react',
+            'react-dom',
+            'react-router-dom',
+            'framer-motion',
+            'recharts',
+            'lucide-react',
+            'leaflet',
+            'react-leaflet',
+            'socket.io-client'
+          ],
+        }
+      }
+    }
+  }
 })

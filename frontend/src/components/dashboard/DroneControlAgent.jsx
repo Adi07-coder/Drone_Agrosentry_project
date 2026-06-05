@@ -663,18 +663,27 @@ const DroneControlAgent = () => {
         </motion.div>
       )}
 
-      {/* ── TOP TELEMETRY ROW (8 cards) ────────────────────── */}
-      <motion.div variants={itemVariants} className="grid grid-cols-2 sm:grid-cols-4 xl:grid-cols-4 gap-4 mb-6">
-        <TelemetryCard icon={Battery}   label="Battery"          value={telemetry.battery.toFixed(0)} unit="%" color={telemetry.battery > 40 ? 'emerald' : 'red'} subtext={`~${telemetry.remainingFlightTime} min left`} />
-        <TelemetryCard icon={ChevronUp} label="Altitude"         value={telemetry.altitude.toFixed(1)} unit="m"   color="blue"   subtext="AGL" />
-        <TelemetryCard icon={Gauge}     label="Ground Speed"     value={telemetry.speed.toFixed(1)}   unit="m/s" color="purple" subtext={`Heading ${Math.floor(telemetry.heading)}°`} />
-        <TelemetryCard icon={Signal}    label="Signal"           value={telemetry.signalStrength}     unit="%"   color={telemetry.signalStrength > 70 ? 'cyan' : 'amber'} subtext={`${telemetry.satellites} sats`} />
+      {/* ── 12-CARD TELEMETRY GRID (3 rows × 4) ──────────────── */}
+      {/* Row 1 — Power & Movement */}
+      <motion.div variants={itemVariants} className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-3">
+        <TelemetryCard icon={Battery}    label="Battery"         value={telemetry.battery.toFixed(0)}        unit="%"    color={telemetry.battery > 40 ? 'emerald' : 'red'}             subtext={`~${telemetry.remainingFlightTime} min left`} />
+        <TelemetryCard icon={MapPin}     label="GPS Status"      value={telemetry.gpsLock ? 'LOCKED' : 'SEARCHING'} color={telemetry.gpsLock ? 'emerald' : 'amber'}              subtext={`${telemetry.satellites} satellites`} />
+        <TelemetryCard icon={Signal}     label="Signal"          value={telemetry.signalStrength}             unit="%"    color={telemetry.signalStrength > 70 ? 'cyan' : 'amber'}       subtext="RSSI strength" />
+        <TelemetryCard icon={ChevronUp}  label="Altitude"        value={telemetry.altitude.toFixed(1)}        unit="m"    color="blue"                                                   subtext="Above Ground Level" />
       </motion.div>
+      {/* Row 2 — Flight Dynamics */}
+      <motion.div variants={itemVariants} className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-3">
+        <TelemetryCard icon={Gauge}      label="Ground Speed"    value={telemetry.speed.toFixed(1)}           unit="m/s"  color="purple"                                                 subtext={`Heading ${Math.floor(telemetry.heading)}°`} />
+        <TelemetryCard icon={ArrowUp}    label="Vertical Speed"  value={droneState.isFlying ? (Math.random() > 0.5 ? '+' : '-') + (Math.random() * 2).toFixed(1) : '0.0'} unit="m/s" color="blue" subtext="Climb / Descent" />
+        <TelemetryCard icon={Wind}       label="Heading"         value={`${Math.floor(telemetry.heading)}°`}  color="purple"                                                             subtext="Compass direction" />
+        <TelemetryCard icon={Navigation} label="Flight Mode"     value={droneState.flightMode}                color="emerald"                                                            subtext="Current mode" />
+      </motion.div>
+      {/* Row 3 — Payload & Mission */}
       <motion.div variants={itemVariants} className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
-        <TelemetryCard icon={ArrowUp}   label="Vertical Speed"   value={droneState.isFlying ? (Math.random() > 0.5 ? '+' : '') + '0.' + Math.floor(Math.random()*9) : '0.0'} unit="m/s" color="blue" subtext="Climb/Descent" />
-        <TelemetryCard icon={Navigation} label="Flight Mode"     value={droneState.flightMode} color="emerald" subtext="Current mode" />
-        <TelemetryCard icon={Droplets}  label="Water Tank"       value={telemetry.tankLevel}   unit="%" color="cyan"   subtext="Capacity remaining" />
-        <TelemetryCard icon={Activity}  label="Spraying"         value={droneState.isSprinklingActive ? 'ACTIVE' : 'OFF'} color={droneState.isSprinklingActive ? 'cyan' : 'amber'} subtext={`${telemetry.flowRate} L/min`} />
+        <TelemetryCard icon={Droplets}   label="Water Tank"      value={telemetry.tankLevel}                  unit="%"    color="cyan"                                                   subtext="Capacity remaining" />
+        <TelemetryCard icon={Activity}   label="Spraying"        value={droneState.isSprinklingActive ? 'ACTIVE' : 'OFF'} color={droneState.isSprinklingActive ? 'cyan' : 'amber'}     subtext={`${telemetry.flowRate} L/min`} />
+        <TelemetryCard icon={Crosshair}  label="Mission"         value={`${telemetry.missionProgress.toFixed(0)}%`} color={telemetry.missionProgress > 0 ? 'blue' : 'amber'}           subtext="Waypoints done" />
+        <TelemetryCard icon={Clock}      label="Flight Time"     value={telemetry.remainingFlightTime}         unit="min"  color={telemetry.remainingFlightTime > 15 ? 'emerald' : 'red'} subtext="Est. remaining" />
       </motion.div>
 
       {/* ── MAIN GRID ──────────────────────────────────── */}
