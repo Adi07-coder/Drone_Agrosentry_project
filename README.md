@@ -1,4 +1,4 @@
-#  AgroSentry - ### Please Note Hardware Is Required To Run The Repo [ Repo Made For HackOrbit Hackathon Only ]### 
+#  AgroSentry - Please Note Hardware Is Required To Run The Repo [ This Repo Made For HackOrbit Hackathon Only Round 2 Submission Only ] 
 
 ##  Introduction
 
