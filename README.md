@@ -25,8 +25,9 @@ https://q.me-qr.com/k8hn18db
 ### Working 
 https://github.com/user-attachments/assets/42569c88-fe26-43ba-b68f-dbf628da3928
 
-
 https://github.com/user-attachments/assets/3fb2417f-dcbe-4d94-9085-d27257736d66
+
+https://github.com/user-attachments/assets/ef0cd1e9-7308-45e6-a71b-fc5172cc63a1
 
 ### UI/UX Prototype
 
