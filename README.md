@@ -1,5 +1,7 @@
 #  AgroSentry - Please Note Hardware Is Required To Run The Repo [ This Repo Made For HackOrbit Hackathon Round 2 Submission Only ] 
 
+## Pleae Refer Pitch Video To See Complete Working Of HardWare And SoftWare 
+
 ##  Introduction
 
 ### Problem Statement
